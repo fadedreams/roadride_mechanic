@@ -2,24 +2,20 @@ package domain
 
 import (
 	"context"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// RepairCostModel represents the cost details for a repair.
 type RepairCostModel struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty"`
-	UserID      string             `bson:"userID"`
-	RepairType  string             `bson:"repairType"`
-	TotalPrice  float64            `bson:"totalPrice"`
+    ID          string  `bson:"_id,omitempty" json:"id"`
+    UserID      string  `bson:"userID" json:"userID"`
+    RepairType  string  `bson:"repairType" json:"repairType"`
+    TotalPrice  float64 `bson:"totalPrice" json:"totalPrice"`
 }
 
-
-// RepairModel represents a repair request.
 type RepairModel struct {
-	ID         primitive.ObjectID `bson:"_id,omitempty"`
-	UserID     string             `bson:"userID"`
-	Status     string             `bson:"status"`
-	RepairCost *RepairCostModel   `bson:"repairCost"`
+    ID         string           `bson:"_id,omitempty" json:"id"`
+    UserID     string           `bson:"userID" json:"userID"`
+    Status     string           `bson:"status" json:"status"`
+    RepairCost *RepairCostModel `bson:"repairCost" json:"repairCost"`
 }
 
 // RepairRepository defines the data access methods for repairs.

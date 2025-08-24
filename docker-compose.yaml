@@ -1,20 +1,46 @@
 version: '3.8'
-
 services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    depends_on:
+      - repair-service
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  repair-service:
+    build:
+      context: ./repair-service
+      dockerfile: Dockerfile
+    depends_on:
+      - mongodb
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - app-network
+
   mongodb:
     image: mongo:latest
-    pull_policy: never
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=admin
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
     restart: unless-stopped
-    command: mongod
+    networks:
+      - app-network
 
 volumes:
   mongodb_data:
     driver: local
+
+networks:
+  app-network:
+    driver: bridge

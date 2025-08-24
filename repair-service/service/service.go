@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"repair-service/domain"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // service implements the RepairService interface
@@ -31,9 +32,9 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 		return nil, err
 	}
 
-	// Create a new repair with initial status
+	// Create a new repair with a unique ID
 	repair := &domain.RepairModel{
-		ID:         cost.ID, // Use the same ID as the cost for consistency
+		ID:         primitive.NewObjectID().Hex(), // Generate a new ID for the repair
 		UserID:     cost.UserID,
 		Status:     "pending",
 		RepairCost: cost,
@@ -56,7 +57,6 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	}
 
 	// Simple cost estimation logic based on repair type
-	// In a real application, this could involve complex calculations or external data
 	totalPrice := 0.0
 	switch repairType {
 	case "flat_tire":
@@ -71,6 +71,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 
 	// Create repair cost model
 	cost := &domain.RepairCostModel{
+		ID:         primitive.NewObjectID().Hex(), // Generate a new ID
 		UserID:     userID,
 		RepairType: repairType,
 		TotalPrice: totalPrice,
@@ -125,10 +126,10 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 
 	// Validate status
 	validStatuses := map[string]bool{
-		"pending":   true,
+		"pending":     true,
 		"in_progress": true,
-		"completed": true,
-		"cancelled": true,
+		"completed":   true,
+		"cancelled":   true,
 	}
 	if !validStatuses[status] {
 		return errors.New("invalid status")
