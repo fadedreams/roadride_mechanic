@@ -11,55 +11,83 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type MongoRepository struct {
-	repairCollection *mongo.Collection
-	costCollection   *mongo.Collection
+	repairCollection  *mongo.Collection
+	costCollection    *mongo.Collection
+	mechanicCollection *mongo.Collection
 }
 
 func NewMongoRepository(client *mongo.Client) *MongoRepository {
 	return &MongoRepository{
-		repairCollection: client.Database("repairdb").Collection("repairs"),
-		costCollection:   client.Database("repairdb").Collection("repair_costs"),
+		repairCollection:  client.Database("repairdb").Collection("repairs"),
+		costCollection:    client.Database("repairdb").Collection("repair_costs"),
+		mechanicCollection: client.Database("repairdb").Collection("mechanics"),
 	}
 }
 
-// Implement domain.RepairRepository
+// CreateRepair inserts a new repair
 func (r *MongoRepository) CreateRepair(ctx context.Context, repair *domain.RepairModel) (*domain.RepairModel, error) {
 	_, err := r.repairCollection.InsertOne(ctx, repair)
 	return repair, err
 }
 
+// SaveRepairCost inserts a new repair cost
 func (r *MongoRepository) SaveRepairCost(ctx context.Context, cost *domain.RepairCostModel) error {
 	_, err := r.costCollection.InsertOne(ctx, cost)
 	return err
 }
 
+// GetRepairCostByID retrieves a repair cost by ID
 func (r *MongoRepository) GetRepairCostByID(ctx context.Context, id string) (*domain.RepairCostModel, error) {
 	var cost domain.RepairCostModel
-	err := r.costCollection.FindOne(ctx, map[string]string{"_id": id}).Decode(&cost)
+	err := r.costCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&cost)
 	if err != nil {
 		return nil, err
 	}
 	return &cost, nil
 }
 
+// GetRepairByID retrieves a repair by ID
 func (r *MongoRepository) GetRepairByID(ctx context.Context, id string) (*domain.RepairModel, error) {
 	var repair domain.RepairModel
-	err := r.repairCollection.FindOne(ctx, map[string]string{"_id": id}).Decode(&repair)
+	err := r.repairCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&repair)
 	if err != nil {
 		return nil, err
 	}
 	return &repair, nil
 }
 
+// UpdateRepair updates the status of a repair
 func (r *MongoRepository) UpdateRepair(ctx context.Context, repairID string, status string) error {
-	_, err := r.repairCollection.UpdateOne(ctx, map[string]string{"_id": repairID}, map[string]interface{}{"$set": map[string]string{"status": status}})
+	_, err := r.repairCollection.UpdateOne(ctx, bson.M{"_id": repairID}, bson.M{"$set": bson.M{"status": status}})
 	return err
+}
+
+// GetAllMechanics retrieves all mechanics
+func (r *MongoRepository) GetAllMechanics(ctx context.Context) ([]*domain.MechanicModel, error) {
+	var mechanics []*domain.MechanicModel
+	cursor, err := r.mechanicCollection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var mechanic domain.MechanicModel
+		if err := cursor.Decode(&mechanic); err != nil {
+			return nil, err
+		}
+		mechanics = append(mechanics, &mechanic)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+	return mechanics, nil
 }
 
 func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Client, error) {
@@ -105,11 +133,12 @@ func main() {
 		var cost domain.RepairCostModel
 		if err := json.NewDecoder(r.Body).Decode(&cost); err != nil {
 			log.Printf("Failed to decode request body: %v", err)
-			http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid request body: %v", err)})
 			return
 		}
 		log.Printf("Decoded cost: %+v", cost)
-		// Ensure ID is set if not provided
 		if cost.ID == "" {
 			cost.ID = primitive.NewObjectID().Hex()
 			log.Printf("Generated new ID for cost: %s", cost.ID)
@@ -117,13 +146,16 @@ func main() {
 		repair, err := svc.CreateRepair(r.Context(), &cost)
 		if err != nil {
 			log.Printf("Failed to create repair: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to create repair: %v", err), http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create repair: %v", err)})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(repair); err != nil {
 			log.Printf("Failed to encode response: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
 			return
 		}
 		log.Println("Successfully sent response for POST /repairs")
@@ -131,20 +163,32 @@ func main() {
 
 	r.HandleFunc("/repairs/estimate", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			RepairType string `json:"repairType"`
-			UserID     string `json:"userID"`
+			RepairType string         `json:"repairType"`
+			UserID     string         `json:"userID"`
+			Location   domain.Location `json:"location"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			log.Printf("Failed to decode request body: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
 			return
 		}
-		cost, err := svc.EstimateRepairCost(r.Context(), input.RepairType, input.UserID)
+		cost, err := svc.EstimateRepairCost(r.Context(), input.RepairType, input.UserID, &input.Location)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("Failed to estimate repair cost: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cost)
+		if err := json.NewEncoder(w).Encode(cost); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
+			return
+		}
 	}).Methods("POST")
 
 	r.HandleFunc("/repairs/cost/{costID}", func(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +197,10 @@ func main() {
 		userID := r.URL.Query().Get("userID")
 		cost, err := svc.GetAndValidateRepairCost(r.Context(), costID, userID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("Failed to get repair cost: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -165,7 +212,10 @@ func main() {
 		repairID := vars["repairID"]
 		repair, err := svc.GetRepairByID(r.Context(), repairID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("Failed to get repair: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -179,11 +229,17 @@ func main() {
 			Status string `json:"status"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			log.Printf("Failed to decode request body: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
 			return
 		}
 		if err := svc.UpdateRepair(r.Context(), repairID, input.Status); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("Failed to update repair: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.WriteHeader(http.StatusOK)

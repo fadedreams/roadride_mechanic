@@ -29,8 +29,10 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=admin
+      - MONGO_INITDB_DATABASE=repairdb
     volumes:
       - mongodb_data:/data/db
+      - ./init_mechanics.js:/docker-entrypoint-initdb.d/init_mechanics.js:ro
     ports:
       - "27017:27017"
     restart: unless-stopped

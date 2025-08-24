@@ -11,10 +11,26 @@ import (
 
 // RepairCostModel mirrors repair-service's domain.RepairCostModel
 type RepairCostModel struct {
-	ID          string  `json:"id"`
-	UserID      string  `json:"userID"`
-	RepairType  string  `json:"repairType"`
-	TotalPrice  float64 `json:"totalPrice"`
+	ID           string         `json:"id"`
+	UserID       string         `json:"userID"`
+	RepairType   string         `json:"repairType"`
+	TotalPrice   float64        `json:"totalPrice"`
+	UserLocation *Location       `json:"userLocation,omitempty"`
+	Mechanics    []MechanicInfo `json:"mechanics,omitempty"`
+}
+
+// Location mirrors repair-service's domain.Location
+type Location struct {
+	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude"`
+}
+
+// MechanicInfo mirrors repair-service's domain.MechanicInfo
+type MechanicInfo struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Location Location `json:"location"`
+	Distance float64 `json:"distance"`
 }
 
 // RepairModel mirrors repair-service's domain.RepairModel
@@ -68,7 +84,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Repair service response: %s", string(bodyBytes))
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Restore body for decoding
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	var repair RepairModel
 	if err := json.NewDecoder(resp.Body).Decode(&repair); err != nil {
@@ -85,8 +101,9 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 // EstimateRepairCost forwards a cost estimation request to repair-service
 func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		RepairType string `json:"repairType"`
-		UserID     string `json:"userID"`
+		RepairType string   `json:"repairType"`
+		UserID     string   `json:"userID"`
+		Location   Location `json:"location"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -106,8 +123,19 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	}
 	defer resp.Body.Close()
 
+	// Log the raw response for debugging
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read response body: %v", err)
+		http.Error(w, "Failed to read response", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Repair service response: %s", string(bodyBytes))
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	var cost RepairCostModel
 	if err := json.NewDecoder(resp.Body).Decode(&cost); err != nil {
+		log.Printf("Failed to decode response: %v", err)
 		http.Error(w, "Failed to decode response", http.StatusInternalServerError)
 		return
 	}
