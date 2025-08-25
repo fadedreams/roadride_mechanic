@@ -4,52 +4,53 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"log"
 	"math"
 	"net/http"
-	"sync"
 	"time"
 )
 
 // Repair represents a repair request
 type Repair struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"userID"`
-	RepairType string    `json:"repairType"`
-	Location   Location  `json:"location"`
-	AssignedTo string    `json:"assignedTo,omitempty"`
-	Timestamp  time.Time `json:"timestamp"`
+	ID         string    `json:"id" bson:"_id"`
+	UserID     string    `json:"userID" bson:"userID"`
+	RepairType string    `json:"repairType" bson:"repairType"`
+	Location   Location  `json:"location" bson:"location"`
+	AssignedTo string    `json:"assignedTo" bson:"assignedTo,omitempty"`
+	Timestamp  time.Time `json:"timestamp" bson:"timestamp"`
 }
 
 // Location represents geographic coordinates
 type Location struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude" bson:"latitude"`
+	Longitude float64 `json:"longitude" bson:"longitude"`
 }
 
 // Mechanic represents a mechanic
 type Mechanic struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Location Location `json:"location"`
+	ID       string   `json:"id" bson:"_id"`
+	Name     string   `json:"name" bson:"name"`
+	Location Location `json:"location" bson:"location"`
 }
 
 // MechanicHandler handles mechanic service requests
 type MechanicHandler struct {
-	repairs   map[string]Repair
+	client    *mongo.Client
 	mechanics []Mechanic
-	mu        sync.RWMutex
 	tracer    trace.Tracer
 }
 
 // NewMechanicHandler creates a new MechanicHandler
-func NewMechanicHandler() *MechanicHandler {
+func NewMechanicHandler(client *mongo.Client) *MechanicHandler {
 	tracer := otel.Tracer("mechanic-service")
 	h := &MechanicHandler{
-		repairs: make(map[string]Repair),
+		client: client,
 		mechanics: []Mechanic{
 			{ID: "m1", Name: "Mechanic1", Location: Location{Latitude: 52.5200, Longitude: 13.4050}},
 			{ID: "m2", Name: "Mechanic2", Location: Location{Latitude: 52.5100, Longitude: 13.4150}},
@@ -78,6 +79,7 @@ func (h *MechanicHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "HealthCheck")
 	defer span.End()
 
+	// Simple health check
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -90,11 +92,27 @@ func (h *MechanicHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Reque
 	// Simulate mechanic location (e.g., first mechanic)
 	mechanicLoc := h.mechanics[0].Location
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	// Connect to MongoDB collection
+	collection := h.client.Database("repairdb").Collection("repairs")
+	cursor, err := collection.Find(ctx, bson.M{})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to query repairs")
+		http.Error(w, "Failed to query repairs", http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var repairs []Repair
+	if err := cursor.All(ctx, &repairs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to decode repairs")
+		http.Error(w, "Failed to decode repairs", http.StatusInternalServerError)
+		return
+	}
 
 	var nearby []Repair
-	for _, repair := range h.repairs {
+	for _, repair := range repairs {
 		distance := haversine(mechanicLoc, repair.Location)
 		if distance <= 10 {
 			nearby = append(nearby, repair)
@@ -124,11 +142,10 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	repair, exists := h.repairs[repairID]
-	if !exists {
+	// Connect to MongoDB collection
+	collection := h.client.Database("repairdb").Collection("repairs")
+	var repair Repair
+	if err := collection.FindOne(ctx, bson.M{"_id": repairID}).Decode(&repair); err != nil {
 		span.SetStatus(codes.Error, "Repair not found")
 		http.Error(w, "Repair not found", http.StatusNotFound)
 		return
@@ -148,8 +165,16 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update repair with assignment
+	update := bson.M{"$set": bson.M{"assignedTo": input.MechanicID}}
+	if _, err := collection.UpdateOne(ctx, bson.M{"_id": repairID}, update); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to assign repair")
+		http.Error(w, "Failed to assign repair", http.StatusInternalServerError)
+		return
+	}
+
 	repair.AssignedTo = input.MechanicID
-	h.repairs[repairID] = repair
 	span.SetAttributes(attribute.String("repairID", repairID), attribute.String("mechanicID", input.MechanicID))
 
 	w.Header().Set("Content-Type", "application/json")
