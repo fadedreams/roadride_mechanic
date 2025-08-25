@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"repair-service/domain"
 	"repair-service/service"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/consul/api"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -120,12 +122,55 @@ func main() {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
+	// Initialize Consul client
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		log.Fatalf("Failed to create Consul client: %v", err)
+	}
+
+	// Register service with Consul
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "repair-service"
+	}
+	servicePort := os.Getenv("SERVICE_PORT")
+	if servicePort == "" {
+		servicePort = "8080"
+	}
+	serviceID := serviceName + "-" + servicePort
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8080,
+		Address: "repair-service",
+		Check: &api.AgentServiceCheck{
+			HTTP:     fmt.Sprintf("http://repair-service:8080/health"),
+			Interval: "10s",
+			Timeout:  "5s",
+		},
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		log.Fatalf("Failed to register with Consul: %v", err)
+	}
+
 	// Initialize repository and service
 	repo := NewMongoRepository(client)
 	svc := service.NewService(repo)
 
 	// Initialize router
 	r := mux.NewRouter()
+
+	// Health check endpoint for Consul
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "OK")
+	}).Methods("GET")
 
 	// Define endpoints
 	r.HandleFunc("/repairs", func(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +260,7 @@ func main() {
 			log.Printf("Failed to get repair: %v", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		 json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

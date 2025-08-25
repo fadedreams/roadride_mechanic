@@ -1,13 +1,29 @@
-version: '3.8'
 services:
+  consul:
+    image: hashicorp/consul:1.20
+    ports:
+      - "8500:8500" # Consul HTTP API
+      - "8600:8600/udp" # Consul DNS
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    environment:
+      - CONSUL_LOCAL_CONFIG={"datacenter":"dc1","server":true}
+    networks:
+      - app-network
+    restart: unless-stopped
+
   api-gateway:
     build:
       context: ./api-gateway
       dockerfile: Dockerfile
     depends_on:
       - repair-service
+      - consul
     ports:
       - "8081:8081"
+    environment:
+      - CONSUL_ADDRESS=consul:8500
+      - SERVICE_NAME=api-gateway
+      - SERVICE_PORT=8081
     restart: unless-stopped
     networks:
       - app-network
@@ -18,8 +34,13 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - mongodb
+      - consul
     ports:
       - "8080:8080"
+    environment:
+      - CONSUL_ADDRESS=consul:8500
+      - SERVICE_NAME=repair-service
+      - SERVICE_PORT=8080
     restart: unless-stopped
     networks:
       - app-network

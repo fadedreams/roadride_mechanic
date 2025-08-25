@@ -3,12 +3,16 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/consul/api"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
+	"time"
 )
 
 // RepairCostModel mirrors repair-service's domain.RepairCostModel
@@ -52,27 +56,90 @@ type StatusUpdate struct {
 
 // RepairHandler handles HTTP and WebSocket requests for repair operations
 type RepairHandler struct {
-	repairServiceURL string
 	client           *http.Client
+	consulClient     *api.Client
+	repairServiceURL string
 	upgrader         websocket.Upgrader
 	clients          map[string][]*websocket.Conn // Map of userID to WebSocket connections
 	clientsMutex     sync.Mutex
 }
 
-// NewRepairHandler creates a new RepairHandler
-func NewRepairHandler(repairServiceURL string) *RepairHandler {
+// NewRepairHandler creates a new RepairHandler with Consul integration
+func NewRepairHandler() *RepairHandler {
+	// Initialize Consul client
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		log.Fatalf("Failed to create Consul client: %v", err)
+	}
+
+	// Register service with Consul
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "api-gateway"
+	}
+	servicePort := os.Getenv("SERVICE_PORT")
+	if servicePort == "" {
+		servicePort = "8081"
+	}
+	serviceID := serviceName + "-" + servicePort
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8081,
+		Address: "api-gateway",
+		Check: &api.AgentServiceCheck{
+			HTTP:     fmt.Sprintf("http://api-gateway:8081/health"),
+			Interval: "10s",
+			Timeout:  "5s",
+		},
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		log.Fatalf("Failed to register with Consul: %v", err)
+	}
+
+	// Discover repair-service
+	repairServiceURL := ""
+	for {
+		services, _, err := consulClient.Health().Service("repair-service", "", true, nil)
+		if err != nil {
+			log.Printf("Failed to discover repair-service: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if len(services) > 0 {
+			repairServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
+			log.Printf("Discovered repair-service at: %s", repairServiceURL)
+			break
+		}
+		log.Println("Waiting for repair-service to be registered...")
+		time.Sleep(2 * time.Second)
+	}
+
 	return &RepairHandler{
+		client:           &http.Client{Timeout: 10 * time.Second},
+		consulClient:     consulClient,
 		repairServiceURL: repairServiceURL,
-		client:           &http.Client{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for simplicity; adjust for production
+				return true // Allow all origins for simplicity
 			},
 		},
 		clients: make(map[string][]*websocket.Conn),
 	}
+}
+
+// HealthCheck provides a health endpoint for Consul
+func (h *RepairHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "OK")
 }
 
 // CreateRepair forwards a repair creation request to repair-service
@@ -96,7 +163,6 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Log the raw response for debugging
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Failed to read response body: %v", err)
@@ -143,7 +209,6 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	}
 	defer resp.Body.Close()
 
-	// Log the raw response for debugging
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Failed to read response body: %v", err)
@@ -314,7 +379,7 @@ func (h *RepairHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) 
 		log.Printf("WebSocket client disconnected for userID: %s", userID)
 	}()
 
-	// Keep connection alive (handle incoming messages if needed)
+	// Keep connection alive
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {

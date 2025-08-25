@@ -17,3 +17,10 @@ curl -v -X PUT http://localhost:8081/repairs/<repairID> -H "Content-Type: applic
 
 ```
 ```
+
+###consul
+curl http://localhost:8500/v1/catalog/services
+curl http://localhost:8500/v1/status/leader
+curl http://localhost:8080/health
+curl http://localhost:8500/v1/health/service/api-gateway
+curl http://localhost:8500/v1/health/service/repair-service

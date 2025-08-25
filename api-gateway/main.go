@@ -9,12 +9,13 @@ import (
 
 func main() {
 	// Initialize handler
-	repairHandler := handlers.NewRepairHandler("http://repair-service:8080")
+	repairHandler := handlers.NewRepairHandler()
 
 	// Initialize router
 	r := mux.NewRouter()
 
 	// Define endpoints
+	r.HandleFunc("/health", repairHandler.HealthCheck).Methods("GET")
 	r.HandleFunc("/repairs", repairHandler.CreateRepair).Methods("POST")
 	r.HandleFunc("/repairs/estimate", repairHandler.EstimateRepairCost).Methods("POST")
 	r.HandleFunc("/repairs/cost/{costID}", repairHandler.GetRepairCost).Methods("GET")
