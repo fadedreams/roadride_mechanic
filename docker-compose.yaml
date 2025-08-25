@@ -1,3 +1,4 @@
+version: '3.8'
 services:
   consul:
     image: hashicorp/consul:1.20
@@ -11,6 +12,18 @@ services:
       - app-network
     restart: unless-stopped
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-network
+    restart: unless-stopped
+
   api-gateway:
     build:
       context: ./api-gateway
@@ -18,12 +31,14 @@ services:
     depends_on:
       - repair-service
       - consul
+      - jaeger
     ports:
       - "8081:8081"
     environment:
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=api-gateway
       - SERVICE_PORT=8081
+      - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
     restart: unless-stopped
     networks:
       - app-network
@@ -35,12 +50,14 @@ services:
     depends_on:
       - mongodb
       - consul
+      - jaeger
     ports:
       - "8080:8080"
     environment:
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=repair-service
       - SERVICE_PORT=8080
+      - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
     restart: unless-stopped
     networks:
       - app-network

@@ -3,6 +3,7 @@ package main
 import (
 	"api-gateway/handlers"
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"log"
 	"net/http"
 )
@@ -13,6 +14,9 @@ func main() {
 
 	// Initialize router
 	r := mux.NewRouter()
+
+	// Add OpenTelemetry middleware
+	r.Use(otelmux.Middleware("api-gateway"))
 
 	// Define endpoints
 	r.HandleFunc("/health", repairHandler.HealthCheck).Methods("GET")
