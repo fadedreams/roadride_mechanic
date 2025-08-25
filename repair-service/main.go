@@ -48,13 +48,27 @@ func initTracer() (func(), error) {
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
+	log.Printf("Initializing tracer with Jaeger endpoint: %s", jaegerEndpoint)
+
+	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
 		otlptracehttp.WithEndpoint("jaeger:4318"),
 		otlptracehttp.WithInsecure(),
 		otlptracehttp.WithURLPath("/v1/traces"),
 	)
 	if err != nil {
+		log.Printf("Failed to create OTLP exporter: %v", err)
 		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
+	}
+
+	// Test Jaeger connectivity with a GET request to a health endpoint
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://jaeger:16686/")
+	if err != nil {
+		log.Printf("Failed to connect to Jaeger UI (health check): %v", err)
+	} else {
+		log.Printf("Jaeger UI health check: status %d", resp.StatusCode)
+		resp.Body.Close()
 	}
 
 	resources := resource.NewWithAttributes(
@@ -63,13 +77,14 @@ func initTracer() (func(), error) {
 	)
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter)),
+		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter, sdktrace.WithExportTimeout(5*time.Second))),
 		sdktrace.WithResource(resources),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
 	return func() {
+		log.Printf("Shutting down tracer provider")
 		if err := tp.Shutdown(context.Background()); err != nil {
 			log.Printf("Error shutting down tracer provider: %v", err)
 		}

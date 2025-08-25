@@ -31,7 +31,7 @@ type RepairCostModel struct {
 	UserID       string         `json:"userID"`
 	RepairType   string         `json:"repairType"`
 	TotalPrice   float64        `json:"totalPrice"`
-	UserLocation *Location       `json:"userLocation,omitempty"`
+	UserLocation *Location      `json:"userLocation,omitempty"`
 	Mechanics    []MechanicInfo `json:"mechanics,omitempty"`
 }
 
@@ -86,17 +86,41 @@ func initTracer() (func(), error) {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
 	}
 
+	// Test Jaeger connectivity with a GET request to the UI health endpoint
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://jaeger:16686/")
+	if err != nil {
+		log.Printf("Failed to connect to Jaeger UI (health check): %v", err)
+	} else {
+		log.Printf("Jaeger UI health check: status %d", resp.StatusCode)
+		resp.Body.Close()
+	}
+
 	resources := resource.NewWithAttributes(
 		semconv.SchemaURL,
 		semconv.ServiceNameKey.String("api-gateway"),
 	)
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter)),
+		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter, sdktrace.WithExportTimeout(5*time.Second))),
 		sdktrace.WithResource(resources),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+
+	// Force a test span to verify export
+	ctx := context.Background()
+	tr := otel.Tracer("api-gateway")
+	_, span := tr.Start(ctx, "TestSpan")
+	span.SetAttributes(attribute.String("test", "true"))
+	span.End()
+
+	// Force export
+	if err := tp.ForceFlush(ctx); err != nil {
+		log.Printf("Failed to flush test span: %v", err)
+	} else {
+		log.Printf("Test span flushed successfully")
+	}
 
 	return func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
@@ -142,7 +166,7 @@ func NewRepairHandler() *RepairHandler {
 		Port:    8081,
 		Address: "api-gateway",
 		Check: &api.AgentServiceCheck{
-			HTTP:     fmt.Sprintf("http://api-gateway:8081/health"),
+			HTTP:     "http://api-gateway:8081/health",
 			Interval: "10s",
 			Timeout:  "5s",
 		},
@@ -617,3 +641,4 @@ func (h *RepairHandler) broadcastStatusUpdate(update StatusUpdate) {
 		}
 	}
 }
+
