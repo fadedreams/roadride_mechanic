@@ -15,13 +15,15 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // service implements the RepairService interface
 type service struct {
-	repo domain.RepairRepository
+	repo       domain.RepairRepository
 	httpClient *http.Client
-	tracer otel.Tracer
+	tracer     trace.Tracer
 }
 
 // NewService creates a new instance of the repair service

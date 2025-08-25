@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel"
@@ -24,7 +25,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
@@ -317,7 +317,7 @@ func main() {
 			attribute.Float64("totalPrice", cost.TotalPrice),
 		)
 		if cost.ID == "" {
-			cost.ID = bson.ObjectID().Hex()
+			cost.ID = primitive.NewObjectID().Hex()
 			log.Printf("Generated new ID for cost: %s", cost.ID)
 			span.SetAttributes(attribute.String("costID", cost.ID))
 		}
