@@ -27,7 +27,7 @@ type RepairCostModel struct {
 	UserID       string         `json:"userID"`
 	RepairType   string         `json:"repairType"`
 	TotalPrice   float64        `json:"totalPrice"`
-	UserLocation *Location      `json:"location,omitempty"`
+	UserLocation *Location      `json:"userLocation,omitempty"`
 	Mechanics    []MechanicInfo `json:"mechanics,omitempty"`
 }
 
@@ -45,12 +45,13 @@ type MechanicInfo struct {
 	Distance float64  `json:"distance"`
 }
 
-// RepairModel mirrors repair-service's domain.RepairModel
+// RepairModel mirrors repair-service's domain.RepairModel and mechanic-service's Repair
 type RepairModel struct {
 	ID         string           `json:"id"`
 	UserID     string           `json:"userID"`
 	Status     string           `json:"status"`
 	RepairCost *RepairCostModel `json:"repairCost"`
+	AssignedTo string           `json:"assignedTo,omitempty"`
 }
 
 // WebSocket message for status updates
@@ -62,14 +63,14 @@ type StatusUpdate struct {
 
 // RepairHandler handles HTTP and WebSocket requests for repair operations
 type RepairHandler struct {
-	client            *http.Client
-	consulClient      *api.Client
-	repairServiceURL  string
+	client             *http.Client
+	consulClient       *api.Client
+	repairServiceURL   string
 	mechanicServiceURL string
-	upgrader          websocket.Upgrader
-	clients           map[string][]*websocket.Conn // Map of userID to WebSocket connections
-	clientsMutex      sync.Mutex
-	tracer            trace.Tracer
+	upgrader           websocket.Upgrader
+	clients            map[string][]*websocket.Conn // Map of userID to WebSocket connections
+	clientsMutex       sync.Mutex
+	tracer             trace.Tracer
 }
 
 // NewRepairHandler creates a new RepairHandler with Consul integration
@@ -156,9 +157,9 @@ func NewRepairHandler() *RepairHandler {
 	}
 
 	return &RepairHandler{
-		client:            client,
-		consulClient:      consulClient,
-		repairServiceURL:  repairServiceURL,
+		client:             client,
+		consulClient:       consulClient,
+		repairServiceURL:   repairServiceURL,
 		mechanicServiceURL: mechanicServiceURL,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -438,7 +439,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequestWithContext(ctx, "PUT", h.repairServiceURL+"/repairs/"+repairID, bytes.NewBuffer(body))
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create request for repair update")
+		span.SetStatus(codes.Error, "Failed to create request")
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -505,60 +506,115 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 
 // ListNearbyRepairs forwards a request to mechanic-service to list nearby repairs
 func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request) {
-	ctx, span := h.tracer.Start(r.Context(), "ListNearbyRepairs")
-	defer span.End()
+    log.Printf("ListNearbyRepairs")
+    ctx, span := h.tracer.Start(r.Context(), "ListNearbyRepairs")
+    defer span.End()
+    log.Printf("Entering ListNearbyRepairs with query: %s", r.URL.Query().Encode())
 
-	mechanicID := r.URL.Query().Get("mechanicID")
-	if mechanicID == "" {
-		span.RecordError(fmt.Errorf("mechanicID is required"))
-		span.SetStatus(codes.Error, "mechanicID is required")
-		http.Error(w, "mechanicID is required", http.StatusBadRequest)
-		return
-	}
-	span.SetAttributes(attribute.String("mechanicID", mechanicID))
+    w.Header().Set("Content-Type", "application/json") // Set header early
 
-	req, err := http.NewRequestWithContext(ctx, "GET", h.mechanicServiceURL+"/repairs/nearby?mechanicID="+mechanicID, nil)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create request")
-		http.Error(w, "Failed to create request", http.StatusInternalServerError)
-		return
-	}
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+    mechanicID := r.URL.Query().Get("mechanicID")
+    log.Printf("Parsed mechanicID: %s", mechanicID)
+    if mechanicID == "" {
+        span.RecordError(fmt.Errorf("mechanicID is required"))
+        span.SetStatus(codes.Error, "mechanicID is required")
+        log.Printf("Error: mechanicID is missing")
+        http.Error(w, "mechanicID is required", http.StatusBadRequest)
+        return
+    }
+    span.SetAttributes(attribute.String("mechanicID", mechanicID))
 
-	resp, err := h.client.Do(req)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to contact mechanic service")
-		http.Error(w, "Failed to contact mechanic service", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
+    log.Printf("Creating request to mechanic-service: %s/repairs/nearby?mechanicID=%s", h.mechanicServiceURL, mechanicID)
+    req, err := http.NewRequestWithContext(ctx, "GET", h.mechanicServiceURL+"/repairs/nearby?mechanicID="+mechanicID, nil)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to create request")
+        log.Printf("Error creating request: %v", err)
+        http.Error(w, "Failed to create request", http.StatusInternalServerError)
+        return
+    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+    log.Printf("Request headers: %+v", req.Header)
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to read response body")
-		log.Printf("Failed to read response body: %v", err)
-		http.Error(w, "Failed to read response", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Mechanic service response: %s", string(bodyBytes))
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+    log.Printf("Sending request to mechanic-service")
+    resp, err := h.client.Do(req)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to contact mechanic service")
+        log.Printf("Error contacting mechanic-service: %v", err)
+        http.Error(w, "Failed to contact mechanic service", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
 
-	var repairs []RepairModel
-	if err := json.NewDecoder(resp.Body).Decode(&repairs); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to decode response")
-		log.Printf("Failed to decode response: %v", err)
-		http.Error(w, "Failed to decode response", http.StatusInternalServerError)
-		return
-	}
+    log.Printf("Mechanic service responded with status: %d", resp.StatusCode)
+    if resp.StatusCode != http.StatusOK {
+        bodyBytes, _ := io.ReadAll(resp.Body)
+        span.RecordError(fmt.Errorf("mechanic service error: %s", string(bodyBytes)))
+        span.SetStatus(codes.Error, "Mechanic service returned non-OK status")
+        log.Printf("Mechanic service error: %s", string(bodyBytes))
+        http.Error(w, fmt.Sprintf("Mechanic service error: %s", string(bodyBytes)), resp.StatusCode)
+        return
+    }
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	json.NewEncoder(w).Encode(repairs)
+    bodyBytes, err := io.ReadAll(resp.Body)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to read response body")
+        log.Printf("Error reading response body: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode([]RepairModel{}) // Return empty array
+        return
+    }
+    log.Printf("Mechanic service response: %s", string(bodyBytes))
+
+    if len(bodyBytes) == 0 {
+        span.RecordError(fmt.Errorf("empty response from mechanic service"))
+        span.SetStatus(codes.Error, "Empty response from mechanic service")
+        log.Printf("Empty response from mechanic service")
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode([]RepairModel{}) // Return empty array
+        return
+    }
+
+    resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+    var repairs []RepairModel
+    if err := json.NewDecoder(resp.Body).Decode(&repairs); err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to decode response")
+        log.Printf("Error decoding response: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode([]RepairModel{}) // Return empty array
+        return
+    }
+
+    log.Printf("Decoded %d repairs from mechanic service", len(repairs))
+    for i, repair := range repairs {
+        log.Printf("Repair %d: %+v", i, repair)
+    }
+
+    w.WriteHeader(http.StatusOK)
+    log.Printf("Encoding %d repairs to response", len(repairs))
+    if err := json.NewEncoder(w).Encode(repairs); err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to encode response")
+        log.Printf("Error encoding response: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode([]RepairModel{}) // Return empty array
+        return
+    }
+    log.Printf("Successfully sent response for ListNearbyRepairs")
 }
+
+// func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request) {
+//     log.Printf("Entering ListNearbyRepairs with query: %s", r.URL.Query().Encode())
+//
+//     w.Header().Set("Content-Type", "application/json")
+//     w.WriteHeader(http.StatusOK)
+//     json.NewEncoder(w).Encode([]struct{}{})
+//     log.Printf("Successfully sent response for ListNearbyRepairs")
+// }
 
 // HandleWebSocket manages WebSocket connections
 func (h *RepairHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
