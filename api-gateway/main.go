@@ -1,11 +1,10 @@
 package main
 
 import (
-	"api-gateway/handlers"
 	"context"
 	"fmt"
 	"github.com/gorilla/mux"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+	"api-gateway/handlers"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -13,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"log"
 	"net/http"
 	"os"
@@ -43,6 +43,7 @@ func main() {
 	r.HandleFunc("/repairs/cost/{costID}", repairHandler.GetRepairCost).Methods("GET")
 	r.HandleFunc("/repairs/{repairID}", repairHandler.GetRepair).Methods("GET")
 	r.HandleFunc("/repairs/{repairID}", repairHandler.UpdateRepair).Methods("PUT")
+	r.HandleFunc("/repairs/nearby", repairHandler.ListNearbyRepairs).Methods("GET")
 	r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
 
 	// Start server

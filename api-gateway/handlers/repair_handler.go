@@ -27,7 +27,7 @@ type RepairCostModel struct {
 	UserID       string         `json:"userID"`
 	RepairType   string         `json:"repairType"`
 	TotalPrice   float64        `json:"totalPrice"`
-	UserLocation *Location      `json:"userLocation,omitempty"`
+	UserLocation *Location      `json:"location,omitempty"`
 	Mechanics    []MechanicInfo `json:"mechanics,omitempty"`
 }
 
@@ -39,10 +39,10 @@ type Location struct {
 
 // MechanicInfo mirrors repair-service's domain.MechanicInfo
 type MechanicInfo struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
 	Location Location `json:"location"`
-	Distance float64 `json:"distance"`
+	Distance float64  `json:"distance"`
 }
 
 // RepairModel mirrors repair-service's domain.RepairModel
@@ -62,13 +62,14 @@ type StatusUpdate struct {
 
 // RepairHandler handles HTTP and WebSocket requests for repair operations
 type RepairHandler struct {
-	client           *http.Client
-	consulClient     *api.Client
-	repairServiceURL string
-	upgrader         websocket.Upgrader
-	clients          map[string][]*websocket.Conn // Map of userID to WebSocket connections
-	clientsMutex     sync.Mutex
-	tracer           trace.Tracer
+	client            *http.Client
+	consulClient      *api.Client
+	repairServiceURL  string
+	mechanicServiceURL string
+	upgrader          websocket.Upgrader
+	clients           map[string][]*websocket.Conn // Map of userID to WebSocket connections
+	clientsMutex      sync.Mutex
+	tracer            trace.Tracer
 }
 
 // NewRepairHandler creates a new RepairHandler with Consul integration
@@ -128,6 +129,24 @@ func NewRepairHandler() *RepairHandler {
 		time.Sleep(2 * time.Second)
 	}
 
+	// Discover mechanic-service
+	mechanicServiceURL := ""
+	for {
+		services, _, err := consulClient.Health().Service("mechanic-service", "", true, nil)
+		if err != nil {
+			log.Printf("Failed to discover mechanic-service: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if len(services) > 0 {
+			mechanicServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
+			log.Printf("Discovered mechanic-service at: %s", mechanicServiceURL)
+			break
+		}
+		log.Println("Waiting for mechanic-service to be registered...")
+		time.Sleep(2 * time.Second)
+	}
+
 	tracer := otel.Tracer("api-gateway")
 
 	// Create HTTP client with OpenTelemetry instrumentation
@@ -137,9 +156,10 @@ func NewRepairHandler() *RepairHandler {
 	}
 
 	return &RepairHandler{
-		client:           client,
-		consulClient:     consulClient,
-		repairServiceURL: repairServiceURL,
+		client:            client,
+		consulClient:      consulClient,
+		repairServiceURL:  repairServiceURL,
+		mechanicServiceURL: mechanicServiceURL,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -418,7 +438,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequestWithContext(ctx, "PUT", h.repairServiceURL+"/repairs/"+repairID, bytes.NewBuffer(body))
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create request")
+		span.SetStatus(codes.Error, "Failed to create request for repair update")
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -481,6 +501,63 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	h.broadcastStatusUpdate(update)
 
 	w.WriteHeader(resp.StatusCode)
+}
+
+// ListNearbyRepairs forwards a request to mechanic-service to list nearby repairs
+func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request) {
+	ctx, span := h.tracer.Start(r.Context(), "ListNearbyRepairs")
+	defer span.End()
+
+	mechanicID := r.URL.Query().Get("mechanicID")
+	if mechanicID == "" {
+		span.RecordError(fmt.Errorf("mechanicID is required"))
+		span.SetStatus(codes.Error, "mechanicID is required")
+		http.Error(w, "mechanicID is required", http.StatusBadRequest)
+		return
+	}
+	span.SetAttributes(attribute.String("mechanicID", mechanicID))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", h.mechanicServiceURL+"/repairs/nearby?mechanicID="+mechanicID, nil)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to create request")
+		http.Error(w, "Failed to create request", http.StatusInternalServerError)
+		return
+	}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to contact mechanic service")
+		http.Error(w, "Failed to contact mechanic service", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to read response body")
+		log.Printf("Failed to read response body: %v", err)
+		http.Error(w, "Failed to read response", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Mechanic service response: %s", string(bodyBytes))
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	var repairs []RepairModel
+	if err := json.NewDecoder(resp.Body).Decode(&repairs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to decode response")
+		log.Printf("Failed to decode response: %v", err)
+		http.Error(w, "Failed to decode response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	json.NewEncoder(w).Encode(repairs)
 }
 
 // HandleWebSocket manages WebSocket connections
