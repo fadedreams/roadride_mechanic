@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/consul/api"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -26,8 +29,61 @@ func main() {
 	}
 	defer shutdown()
 
-	// Initialize handler
-	handler := handlers.NewMechanicHandler()
+	// Initialize Consul client and register service
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		log.Fatalf("Failed to create Consul client: %v", err)
+	}
+
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "mechanic-service"
+	}
+	servicePort := os.Getenv("SERVICE_PORT")
+	if servicePort == "" {
+		servicePort = "8082"
+	}
+	serviceID := serviceName + "-" + servicePort
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8082,
+		Address: "mechanic-service",
+		Check: &api.AgentServiceCheck{
+			HTTP:     fmt.Sprintf("http://mechanic-service:8082/health"),
+			Interval: "10s",
+			Timeout:  "5s",
+		},
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		log.Fatalf("Failed to register with Consul: %v", err)
+	}
+	log.Printf("Registered %s with Consul", serviceID)
+
+	// Initialize MongoDB
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin"
+	}
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Printf("Failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+	log.Println("Connected to MongoDB")
+
+	// Initialize handler with MongoDB client
+	handler := handlers.NewMechanicHandler(client)
 
 	// Initialize router
 	r := mux.NewRouter()
