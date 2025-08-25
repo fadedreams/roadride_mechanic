@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"context"
+	_ "context"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"log"
+	_ "log"
 	"math"
 	"net/http"
 	"time"
