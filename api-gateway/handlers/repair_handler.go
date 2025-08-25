@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net/http"
+	"sync"
 )
 
 // RepairCostModel mirrors repair-service's domain.RepairCostModel
@@ -41,10 +43,20 @@ type RepairModel struct {
 	RepairCost *RepairCostModel `json:"repairCost"`
 }
 
-// RepairHandler handles HTTP requests for repair operations
+// WebSocket message for status updates
+type StatusUpdate struct {
+	RepairID string `json:"repairID"`
+	UserID   string `json:"userID"`
+	Status   string `json:"status"`
+}
+
+// RepairHandler handles HTTP and WebSocket requests for repair operations
 type RepairHandler struct {
 	repairServiceURL string
 	client           *http.Client
+	upgrader         websocket.Upgrader
+	clients          map[string][]*websocket.Conn // Map of userID to WebSocket connections
+	clientsMutex     sync.Mutex
 }
 
 // NewRepairHandler creates a new RepairHandler
@@ -52,6 +64,14 @@ func NewRepairHandler(repairServiceURL string) *RepairHandler {
 	return &RepairHandler{
 		repairServiceURL: repairServiceURL,
 		client:           &http.Client{},
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for simplicity; adjust for production
+			},
+		},
+		clients: make(map[string][]*websocket.Conn),
 	}
 }
 
@@ -192,7 +212,7 @@ func (h *RepairHandler) GetRepair(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(repair)
 }
 
-// UpdateRepair updates a repair's status
+// UpdateRepair updates a repair's status and broadcasts to WebSocket clients
 func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repairID := vars["repairID"]
@@ -225,5 +245,106 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("Repair service error: %s", string(bodyBytes))
+		http.Error(w, "Failed to update repair", resp.StatusCode)
+		return
+	}
+
+	// Get the repair to obtain userID for broadcasting
+	repairResp, err := h.client.Get(h.repairServiceURL + "/repairs/" + repairID)
+	if err != nil {
+		log.Printf("Failed to fetch repair for broadcasting: %v", err)
+	} else {
+		var repair RepairModel
+		if err := json.NewDecoder(repairResp.Body).Decode(&repair); err == nil {
+			// Broadcast status update to clients
+			update := StatusUpdate{
+				RepairID: repairID,
+				UserID:   repair.UserID,
+				Status:   input.Status,
+			}
+			h.broadcastStatusUpdate(update)
+		} else {
+			log.Printf("Failed to decode repair for broadcasting: %v", err)
+		}
+		repairResp.Body.Close()
+	}
+
 	w.WriteHeader(resp.StatusCode)
+}
+
+// HandleWebSocket manages WebSocket connections
+func (h *RepairHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("userID")
+	if userID == "" {
+		http.Error(w, "userID is required", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Failed to upgrade to WebSocket: %v", err)
+		http.Error(w, "Failed to upgrade to WebSocket", http.StatusInternalServerError)
+		return
+	}
+
+	// Register client
+	h.clientsMutex.Lock()
+	h.clients[userID] = append(h.clients[userID], conn)
+	h.clientsMutex.Unlock()
+	log.Printf("WebSocket client connected for userID: %s", userID)
+
+	// Handle client disconnection
+	defer func() {
+		h.clientsMutex.Lock()
+		clients := h.clients[userID]
+		for i, c := range clients {
+			if c == conn {
+				h.clients[userID] = append(clients[:i], clients[i+1:]...)
+				break
+			}
+		}
+		if len(h.clients[userID]) == 0 {
+			delete(h.clients, userID)
+		}
+		h.clientsMutex.Unlock()
+		conn.Close()
+		log.Printf("WebSocket client disconnected for userID: %s", userID)
+	}()
+
+	// Keep connection alive (handle incoming messages if needed)
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+	}
+}
+
+// broadcastStatusUpdate sends status updates to all clients subscribed to the userID
+func (h *RepairHandler) broadcastStatusUpdate(update StatusUpdate) {
+	h.clientsMutex.Lock()
+	defer h.clientsMutex.Unlock()
+
+	clients, exists := h.clients[update.UserID]
+	if !exists {
+		return
+	}
+
+	message, err := json.Marshal(update)
+	if err != nil {
+		log.Printf("Failed to marshal status update: %v", err)
+		return
+	}
+
+	for _, conn := range clients {
+		err := conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			log.Printf("Failed to send WebSocket message: %v", err)
+			conn.Close()
+		}
+	}
 }
