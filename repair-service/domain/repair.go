@@ -51,7 +51,7 @@ type RepairRepository interface {
 	GetRepairByID(ctx context.Context, id string) (*RepairModel, error)
 	UpdateRepair(ctx context.Context, repairID string, status string) error
 	GetAllMechanics(ctx context.Context) ([]*MechanicModel, error)
-	GetAllRepairs(ctx context.Context, userID string) ([]*RepairModel, error)
+	GetAllRepairs(ctx context.Context) ([]*RepairModel, error)
 }
 
 // RepairService defines the business logic methods for repairs
@@ -61,5 +61,5 @@ type RepairService interface {
 	GetAndValidateRepairCost(ctx context.Context, costID, userID string) (*RepairCostModel, error)
 	GetRepairByID(ctx context.Context, id string) (*RepairModel, error)
 	UpdateRepair(ctx context.Context, repairID string, status string) error
-	GetAllRepairs(ctx context.Context, userID string) ([]*RepairModel, error)
+	GetAllRepairs(ctx context.Context) ([]*RepairModel, error)
 }

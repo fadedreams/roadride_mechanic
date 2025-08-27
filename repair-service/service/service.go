@@ -272,24 +272,13 @@ func (s *service) GetRepairByID(ctx context.Context, id string) (*domain.RepairM
 	return repair, nil
 }
 
-// GetAllRepairs retrieves all repairs for a given user
-func (s *service) GetAllRepairs(ctx context.Context, userID string) ([]*domain.RepairModel, error) {
+// GetAllRepairs retrieves all repairs
+func (s *service) GetAllRepairs(ctx context.Context) ([]*domain.RepairModel, error) {
 	_, span := s.tracer.Start(ctx, "ServiceGetAllRepairs")
 	defer span.End()
 
-	// Validate input
-	if userID == "" {
-		err := errors.New("user ID is required")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("userID", userID),
-	)
-
-	// Retrieve all repairs for the user
-	repairs, err := s.repo.GetAllRepairs(ctx, userID)
+	// Retrieve all repairs
+	repairs, err := s.repo.GetAllRepairs(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find repairs")

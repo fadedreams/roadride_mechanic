@@ -154,13 +154,13 @@ func (r *MongoRepository) GetAllMechanics(ctx context.Context) ([]*MechanicModel
 	return mechanics, nil
 }
 
-// GetAllRepairs retrieves all repairs for a given user
-func (r *MongoRepository) GetAllRepairs(ctx context.Context, userID string) ([]*RepairModel, error) {
+// GetAllRepairs retrieves all repairs
+func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*RepairModel, error) {
 	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetAllRepairs")
 	defer span.End()
 
 	var repairs []*RepairModel
-	cursor, err := r.RepairCollection.Find(ctx, bson.M{"userID": userID})
+	cursor, err := r.RepairCollection.Find(ctx, bson.M{})
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find repairs")

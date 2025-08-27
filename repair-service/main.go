@@ -166,7 +166,7 @@ func main() {
 		fmt.Fprintln(w, "OK")
 	}).Methods("GET")
 
-	// Define endpoints
+	// Create repair endpoint
 	r.HandleFunc("/repairs", func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "CreateRepair")
 		defer span.End()
@@ -215,13 +215,14 @@ func main() {
 		log.Println("Successfully sent response for POST /repairs")
 	}).Methods("POST")
 
+	// Estimate repair cost endpoint
 	r.HandleFunc("/repairs/estimate", func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "EstimateRepairCost")
 		defer span.End()
 
 		var input struct {
-			RepairType string         `json:"repairType"`
-			UserID     string         `json:"userID"`
+			RepairType string          `json:"repairType"`
+			UserID     string          `json:"userID"`
 			Location   domain.Location `json:"location"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -234,8 +235,8 @@ func main() {
 			return
 		}
 		span.SetAttributes(
-			attribute.String("userID", input.UserID),
 			attribute.String("repairType", input.RepairType),
+			attribute.String("userID", input.UserID),
 			attribute.Float64("location.longitude", input.Location.Longitude),
 			attribute.Float64("location.latitude", input.Location.Latitude),
 		)
@@ -246,7 +247,7 @@ func main() {
 			log.Printf("Failed to estimate repair cost: %v", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to estimate repair cost: %v", err)})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -260,87 +261,25 @@ func main() {
 		}
 	}).Methods("POST")
 
-	r.HandleFunc("/repairs/cost/{costID}", func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetRepairCost")
-		defer span.End()
-
-		vars := mux.Vars(r)
-		costID := vars["costID"]
-		userID := r.URL.Query().Get("userID")
-		span.SetAttributes(
-			attribute.String("costID", costID),
-			attribute.String("userID", userID),
-		)
-		cost, err := svc.GetAndValidateRepairCost(ctx, costID, userID)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to get repair cost")
-			log.Printf("Failed to get repair cost: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(cost); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to encode response")
-			log.Printf("Failed to encode response: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
-			return
-		}
-	}).Methods("GET")
-
-	r.HandleFunc("/repairs/{repairID}", func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetRepair")
-		defer span.End()
-
-		vars := mux.Vars(r)
-		repairID := vars["repairID"]
-		span.SetAttributes(
-			attribute.String("repairID", repairID),
-		)
-		repair, err := svc.GetRepairByID(ctx, repairID)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to get repair")
-			log.Printf("Failed to get repair: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(repair); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to encode response")
-			log.Printf("Failed to encode response: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
-			return
-		}
-	}).Methods("GET")
-
-	r.HandleFunc("/repairs/user/{userID}", func(w http.ResponseWriter, r *http.Request) {
+	// Get all repairs endpoint
+	r.HandleFunc("/repairs", func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetAllRepairs")
 		defer span.End()
 
-		vars := mux.Vars(r)
-		userID := vars["userID"]
-		span.SetAttributes(
-			attribute.String("userID", userID),
-		)
-		repairs, err := svc.GetAllRepairs(ctx, userID)
+		log.Println("Received GET /repairs request")
+		repairs, err := svc.GetAllRepairs(ctx)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to get repairs")
 			log.Printf("Failed to get repairs: %v", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get repairs: %v", err)})
 			return
 		}
+		span.SetAttributes(
+			attribute.Int("repairCount", len(repairs)),
+		)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(repairs); err != nil {
 			span.RecordError(err)
@@ -350,45 +289,16 @@ func main() {
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
 			return
 		}
+		log.Println("Successfully sent response for GET /repairs")
 	}).Methods("GET")
 
-	r.HandleFunc("/repairs/{repairID}", func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "UpdateRepair")
-		defer span.End()
-
-		vars := mux.Vars(r)
-		repairID := vars["repairID"]
-		var input struct {
-			Status string `json:"status"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Invalid request body")
-			log.Printf("Failed to decode request body: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
-			return
-		}
-		span.SetAttributes(
-			attribute.String("repairID", repairID),
-			attribute.String("status", input.Status),
-		)
-		if err := svc.UpdateRepair(ctx, repairID, input.Status); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to update repair")
-			log.Printf("Failed to update repair: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}).Methods("PUT")
-
 	// Start server
-	log.Println("Repair Service running on port 8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	port := os.Getenv("SERVICE_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Starting repair-service on port %s", port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
