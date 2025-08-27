@@ -69,7 +69,8 @@ func main() {
 	// Initialize MongoDB
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		mongoURI = "mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin"
+		// mongoURI = "mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin"
+		mongoURI = "mongodb://mongodb:27017/repairdb?replicaSet=rs0"
 	}
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
 	if err != nil {

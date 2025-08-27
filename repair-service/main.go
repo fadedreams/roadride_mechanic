@@ -124,7 +124,8 @@ func main() {
 	defer shutdown()
 
 	// Connect to MongoDB with retries
-	client, err := connectToMongoDB("mongodb://admin:admin@mongodb:27017", 5, 2*time.Second)
+	// client, err := connectToMongoDB("mongodb://admin:admin@mongodb:27017", 5, 2*time.Second)
+	client, err := connectToMongoDB("mongodb://mongodb:27017/repairdb?replicaSet=rs0", 5, 2*time.Second)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
