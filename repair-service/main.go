@@ -13,7 +13,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -27,20 +26,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
-
-type MongoRepository struct {
-	repairCollection  *mongo.Collection
-	costCollection    *mongo.Collection
-	mechanicCollection *mongo.Collection
-}
-
-func NewMongoRepository(client *mongo.Client) *MongoRepository {
-	return &MongoRepository{
-		repairCollection:  client.Database("repairdb").Collection("repairs"),
-		costCollection:    client.Database("repairdb").Collection("repair_costs"),
-		mechanicCollection: client.Database("repairdb").Collection("mechanics"),
-	}
-}
 
 // initTracer initializes OpenTelemetry tracer
 func initTracer() (func(), error) {
@@ -89,134 +74,6 @@ func initTracer() (func(), error) {
 			log.Printf("Error shutting down tracer provider: %v", err)
 		}
 	}, nil
-}
-
-// CreateRepair inserts a new repair
-func (r *MongoRepository) CreateRepair(ctx context.Context, repair *domain.RepairModel) (*domain.RepairModel, error) {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoCreateRepair")
-	defer span.End()
-
-	_, err := r.repairCollection.InsertOne(ctx, repair)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to insert repair")
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("repairID", repair.ID),
-		attribute.String("userID", repair.UserID),
-		attribute.String("status", repair.Status),
-	)
-	return repair, nil
-}
-
-// SaveRepairCost inserts a new repair cost
-func (r *MongoRepository) SaveRepairCost(ctx context.Context, cost *domain.RepairCostModel) error {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoSaveRepairCost")
-	defer span.End()
-
-	_, err := r.costCollection.InsertOne(ctx, cost)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to insert repair cost")
-		return err
-	}
-	span.SetAttributes(
-		attribute.String("costID", cost.ID),
-		attribute.String("userID", cost.UserID),
-		attribute.String("repairType", cost.RepairType),
-		attribute.Float64("totalPrice", cost.TotalPrice),
-	)
-	return nil
-}
-
-// GetRepairCostByID retrieves a repair cost by ID
-func (r *MongoRepository) GetRepairCostByID(ctx context.Context, id string) (*domain.RepairCostModel, error) {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetRepairCostByID")
-	defer span.End()
-
-	var cost domain.RepairCostModel
-	err := r.costCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&cost)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to find repair cost")
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("costID", id),
-		attribute.String("userID", cost.UserID),
-	)
-	return &cost, nil
-}
-
-// GetRepairByID retrieves a repair by ID
-func (r *MongoRepository) GetRepairByID(ctx context.Context, id string) (*domain.RepairModel, error) {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetRepairByID")
-	defer span.End()
-
-	var repair domain.RepairModel
-	err := r.repairCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&repair)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to find repair")
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("repairID", id),
-		attribute.String("userID", repair.UserID),
-	)
-	return &repair, nil
-}
-
-// UpdateRepair updates the status of a repair
-func (r *MongoRepository) UpdateRepair(ctx context.Context, repairID string, status string) error {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoUpdateRepair")
-	defer span.End()
-
-	_, err := r.repairCollection.UpdateOne(ctx, bson.M{"_id": repairID}, bson.M{"$set": bson.M{"status": status}})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to update repair")
-		return err
-	}
-	span.SetAttributes(
-		attribute.String("repairID", repairID),
-		attribute.String("status", status),
-	)
-	return nil
-}
-
-// GetAllMechanics retrieves all mechanics
-func (r *MongoRepository) GetAllMechanics(ctx context.Context) ([]*domain.MechanicModel, error) {
-	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetAllMechanics")
-	defer span.End()
-
-	var mechanics []*domain.MechanicModel
-	cursor, err := r.mechanicCollection.Find(ctx, bson.M{})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to find mechanics")
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	for cursor.Next(ctx) {
-		var mechanic domain.MechanicModel
-		if err := cursor.Decode(&mechanic); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to decode mechanic")
-			return nil, err
-		}
-		mechanics = append(mechanics, &mechanic)
-	}
-	if err := cursor.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Cursor error")
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.Int("mechanicCount", len(mechanics)),
-	)
-	return mechanics, nil
 }
 
 func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Client, error) {
@@ -294,7 +151,7 @@ func main() {
 	}
 
 	// Initialize repository and service
-	repo := NewMongoRepository(client)
+	repo := domain.NewMongoRepository(client)
 	svc := service.NewService(repo)
 
 	// Initialize router
@@ -456,6 +313,36 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(repair); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to encode response")
+			log.Printf("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
+			return
+		}
+	}).Methods("GET")
+
+	r.HandleFunc("/repairs/user/{userID}", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetAllRepairs")
+		defer span.End()
+
+		vars := mux.Vars(r)
+		userID := vars["userID"]
+		span.SetAttributes(
+			attribute.String("userID", userID),
+		)
+		repairs, err := svc.GetAllRepairs(ctx, userID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to get repairs")
+			log.Printf("Failed to get repairs: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(repairs); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
 			log.Printf("Failed to encode response: %v", err)
