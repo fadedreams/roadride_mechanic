@@ -11,11 +11,17 @@ import (
 	"repair-service/service"
 	"time"
 
+	"net"
+	"repair-service/grpcsvc"
+	"repair-service/proto"
+
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -24,13 +30,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-"net"
-    "repair-service/grpcsvc"
-    "repair-service/proto"
 
-    "google.golang.org/grpc"
-    "google.golang.org/grpc/reflection"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 // initTracer initializes OpenTelemetry tracer
@@ -83,26 +85,34 @@ func initTracer() (func(), error) {
 }
 
 func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Client, error) {
-	var client *mongo.Client
-	var err error
+    var client *mongo.Client
+    var err error
 
-	for i := 0; i < retries; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		client, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
-		if err == nil {
-			err = client.Ping(ctx, nil)
-			if err == nil {
-				cancel()
-				return client, nil
-			}
-		}
-		cancel()
-		log.Printf("Failed to connect to MongoDB (attempt %d/%d): %v", i+1, retries, err)
-		if i < retries-1 {
-			time.Sleep(delay)
-		}
-	}
-	return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %v", retries, err)
+    for i := 0; i < retries; i++ {
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        client, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
+        if err == nil {
+            err = client.Ping(ctx, nil)
+            if err == nil {
+                // Verify replica set is initialized
+                var result struct {
+                    Ok int `bson:"ok"`
+                }
+                err = client.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(&result)
+                if err == nil && result.Ok == 1 {
+                    cancel()
+                    return client, nil
+                }
+                log.Printf("Replica set not ready: %v", err)
+            }
+        }
+        cancel()
+        log.Printf("Failed to connect to MongoDB (attempt %d/%d): %v", i+1, retries, err)
+        if i < retries-1 {
+            time.Sleep(delay)
+        }
+    }
+    return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %v", retries, err)
 }
 
 func main() {
