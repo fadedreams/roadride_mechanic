@@ -25,3 +25,9 @@ curl http://localhost:8500/v1/status/leader
 curl http://localhost:8080/health
 curl http://localhost:8500/v1/health/service/api-gateway
 curl http://localhost:8500/v1/health/service/repair-service
+
+#testing grpc
+```
+grpcurl -plaintext localhost:50051 repair.RepairService/StreamAllRepairs
+```
+```
