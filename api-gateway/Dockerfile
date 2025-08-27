@@ -1,4 +1,5 @@
 FROM golang:1.25
+ENV GOPROXY=https://goproxy.cn
 
 WORKDIR /app
 

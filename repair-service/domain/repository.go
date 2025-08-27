@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // MongoRepository implements the RepairRepository interface
@@ -188,4 +189,20 @@ func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*RepairModel, er
 	)
 
 	return repairs, nil
+}
+// WatchRepairs sets up a MongoDB change stream for repair insertions
+func (r *MongoRepository) WatchRepairs(ctx context.Context) (*mongo.ChangeStream, error) {
+    _, span := otel.Tracer("repair-service").Start(ctx, "MongoWatchRepairs")
+    defer span.End()
+
+    pipeline := mongo.Pipeline{
+        bson.D{{"$match", bson.D{{"operationType", "insert"}}}},
+    }
+    changeStream, err := r.RepairCollection.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to open change stream")
+        return nil, fmt.Errorf("failed to open change stream: %v", err)
+    }
+    return changeStream, nil
 }

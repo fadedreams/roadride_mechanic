@@ -52,11 +52,14 @@ services:
       - jaeger
     ports:
       - "8080:8080"
+      - "50051:50051"
     environment:
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=repair-service
       - SERVICE_PORT=8080
       - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
+      - GRPC_PORT=50051
+      - MONGO_URI=mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin&replicaSet=rs0
     restart: unless-stopped
     networks:
       - app-network
@@ -76,7 +79,7 @@ services:
       - SERVICE_NAME=mechanic-service
       - SERVICE_PORT=8082
       - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
-      - MONGO_URI=mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin
+      - MONGO_URI=mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin&replicaSet=rs0
     restart: unless-stopped
     networks:
       - app-network
@@ -90,8 +93,10 @@ services:
     volumes:
       - mongodb_data:/data/db
       - ./init_mechanics.js:/docker-entrypoint-initdb.d/init_mechanics.js:ro
+      - ./init_replica.js:/docker-entrypoint-initdb.d/init_replica.js:ro
     ports:
       - "27017:27017"
+    command: mongod --replSet rs0
     restart: unless-stopped
     networks:
       - app-network

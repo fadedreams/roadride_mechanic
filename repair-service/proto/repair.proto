@@ -1,0 +1,43 @@
+// proto/repair.proto
+syntax = "proto3";
+
+option go_package = "./proto";
+
+package repair;
+
+service RepairService {
+  // Server-streaming RPC to get all repairs and stream new ones
+  rpc StreamAllRepairs(Empty) returns (stream Repair) {}
+}
+
+// Empty message for requests that don't need parameters
+message Empty {}
+
+// Repair message mirroring the domain.RepairModel
+message Repair {
+  string id = 1;
+  string user_id = 2;
+  string status = 3;
+  RepairCost repair_cost = 4;
+}
+
+message RepairCost {
+  string id = 1;
+  string user_id = 2;
+  string repair_type = 3;
+  double total_price = 4;
+  Location user_location = 5;
+  repeated MechanicInfo mechanics = 6;
+}
+
+message Location {
+  double longitude = 1;
+  double latitude = 2;
+}
+
+message MechanicInfo {
+  string id = 1;
+  string name = 2;
+  Location location = 3;
+  double distance = 4;
+}

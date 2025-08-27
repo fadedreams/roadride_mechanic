@@ -2,6 +2,8 @@ package domain
 
 import (
 	"context"
+
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // RepairCostModel represents the cost of a repair
@@ -52,6 +54,7 @@ type RepairRepository interface {
 	UpdateRepair(ctx context.Context, repairID string, status string) error
 	GetAllMechanics(ctx context.Context) ([]*MechanicModel, error)
 	GetAllRepairs(ctx context.Context) ([]*RepairModel, error)
+	WatchRepairs(ctx context.Context) (*mongo.ChangeStream, error)
 }
 
 // RepairService defines the business logic methods for repairs

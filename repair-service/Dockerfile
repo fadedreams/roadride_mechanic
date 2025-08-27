@@ -1,4 +1,5 @@
 FROM golang:1.25
+ENV GOPROXY=https://goproxy.cn
 
 WORKDIR /app
 
@@ -8,6 +9,6 @@ RUN go mod download
 COPY . .
 RUN go build -o repair-service .
 
-EXPOSE 8080
+EXPOSE 8080 50051
 
 CMD ["./repair-service"]

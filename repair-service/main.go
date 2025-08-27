@@ -25,6 +25,12 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+"net"
+    "repair-service/grpcsvc"
+    "repair-service/proto"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/reflection"
 )
 
 // initTracer initializes OpenTelemetry tracer
@@ -291,6 +297,25 @@ func main() {
 		}
 		log.Println("Successfully sent response for GET /repairs")
 	}).Methods("GET")
+
+// Start gRPC server in a separate goroutine
+    go func() {
+        grpcPort := os.Getenv("GRPC_PORT")
+        if grpcPort == "" {
+            grpcPort = "50051"
+        }
+        lis, err := net.Listen("tcp", ":"+grpcPort)
+        if err != nil {
+            log.Fatalf("Failed to listen for gRPC: %v", err)
+        }
+        grpcServer := grpc.NewServer()
+        proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo))
+        reflection.Register(grpcServer) // Enable reflection for debugging
+        log.Printf("Starting gRPC server on port %s", grpcPort)
+        if err := grpcServer.Serve(lis); err != nil {
+            log.Fatalf("Failed to start gRPC server: %v", err)
+        }
+    }()
 
 	// Start server
 	port := os.Getenv("SERVICE_PORT")
