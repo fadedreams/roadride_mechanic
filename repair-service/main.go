@@ -50,7 +50,7 @@ func initTracer() (func(), error) {
 	)
 	if err != nil {
 		slog.Error("Failed to create OTLP exporter", "error", err)
-		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
+		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
 	// Test Jaeger connectivity with a GET request to a health endpoint
@@ -87,7 +87,7 @@ func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Clie
 	var client *mongo.Client
 	var err error
 
-	for i := 0; i < retries; i++ {
+	for i := range retries {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		client, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
 		if err == nil {
@@ -97,7 +97,9 @@ func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Clie
 				var result struct {
 					Ok int `bson:"ok"`
 				}
-				err = client.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(&result)
+				err = client.Database("admin").RunCommand(ctx, bson.D{
+					{Key: "replSetGetStatus", Value: 1},
+				}).Decode(&result)
 				if err == nil && result.Ok == 1 {
 					cancel()
 					slog.Info("Connected to MongoDB", "uri", uri)
@@ -112,7 +114,7 @@ func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Clie
 			time.Sleep(delay)
 		}
 	}
-	return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %v", retries, err)
+	return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %w", retries, err)
 }
 
 func main() {
@@ -176,7 +178,7 @@ func main() {
 		Port:    8080,
 		Address: "repair-service",
 		Check: &api.AgentServiceCheck{
-			HTTP:     fmt.Sprintf("http://repair-service:8080/health"),
+			HTTP:     fmt.Sprintf("http://repair-service:%s/health", servicePort),
 			Interval: "10s",
 			Timeout:  "5s",
 		},
@@ -216,10 +218,10 @@ func main() {
 			slog.Error("Failed to decode request body", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid request body: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body: " + err.Error()})
 			return
 		}
-		slog.Info("Decoded cost", "cost", fmt.Sprintf("%+v", cost))
+		slog.Info("Decoded cost", "cost", cost)
 		span.SetAttributes(
 			attribute.String("userID", cost.UserID),
 			attribute.String("repairType", cost.RepairType),
@@ -237,7 +239,7 @@ func main() {
 			slog.Error("Failed to create repair", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create repair: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create repair: " + err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -246,7 +248,7 @@ func main() {
 			span.SetStatus(codes.Error, "Failed to encode response")
 			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
 		}
 		slog.Info("Successfully sent response for POST /repairs")
@@ -268,7 +270,7 @@ func main() {
 			slog.Error("Failed to decode request body", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body: " + err.Error()})
 			return
 		}
 		span.SetAttributes(
@@ -284,7 +286,7 @@ func main() {
 			slog.Error("Failed to estimate repair cost", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to estimate repair cost: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to estimate repair cost: " + err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -293,7 +295,7 @@ func main() {
 			span.SetStatus(codes.Error, "Failed to encode response")
 			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
 		}
 	}).Methods("POST")
@@ -311,7 +313,7 @@ func main() {
 			slog.Error("Failed to get repairs", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get repairs: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to get repairs: " + err.Error()})
 			return
 		}
 		span.SetAttributes(
@@ -323,7 +325,7 @@ func main() {
 			span.SetStatus(codes.Error, "Failed to encode response")
 			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
 		}
 		slog.Info("Successfully sent response for GET /repairs")
