@@ -1,3 +1,4 @@
+// mechanic-service/main.go
 package main
 
 import (
@@ -18,7 +19,9 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"mechanic-service/domain"
 	"mechanic-service/handlers"
+	"mechanic-service/service"
 )
 
 func main() {
@@ -69,7 +72,6 @@ func main() {
 	// Initialize MongoDB
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		// mongoURI = "mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin"
 		mongoURI = "mongodb://mongodb:27017/repairdb?replicaSet=rs0"
 	}
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
@@ -83,8 +85,12 @@ func main() {
 	}()
 	log.Println("Connected to MongoDB")
 
-	// Initialize handler with MongoDB client
-	handler := handlers.NewMechanicHandler(client)
+	// Initialize repository and service
+	repo := domain.NewMongoRepository(client)
+	svc := service.NewService(repo)
+
+	// Initialize handler with service
+	handler := handlers.NewMechanicHandler(svc)
 
 	// Initialize router
 	r := mux.NewRouter()
