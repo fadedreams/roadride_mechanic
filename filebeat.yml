@@ -1,0 +1,27 @@
+filebeat.inputs:
+- type: filestream
+  id: api-gateway-logs
+  paths:
+    - /var/log/api-gateway/*.log
+  fields:
+    app: api-gateway
+  fields_under_root: true
+
+- type: filestream
+  id: mechanic-service-logs
+  paths:
+    - /var/log/mechanic-service/*.log
+  fields:
+    app: mechanic-service
+  fields_under_root: true
+
+- type: filestream
+  id: repair-service-logs
+  paths:
+    - /var/log/repair-service/*.log
+  fields:
+    app: repair-service
+  fields_under_root: true
+
+output.logstash:
+  hosts: ["logstash:5044"]

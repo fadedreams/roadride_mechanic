@@ -1,118 +1,114 @@
 services:
-  consul:
-    image: hashicorp/consul:1.20
-    ports:
-      - "8500:8500" # Consul HTTP API
-      - "8600:8600/udp" # Consul DNS
-    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
-    environment:
-      - CONSUL_LOCAL_CONFIG={"datacenter":"dc1","server":true}
-    networks:
-      - app-network
-    restart: unless-stopped
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.58
-    ports:
-      - "16686:16686" # Jaeger UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks:
-      - app-network
-    restart: unless-stopped
-
   api-gateway:
     build:
       context: ./api-gateway
       dockerfile: Dockerfile
-    depends_on:
-      repair-service:
-        condition: service_started
-      consul:
-        condition: service_started
-      jaeger:
-        condition: service_started
-      logstash:
-        condition: service_healthy
+    container_name: api-gateway
     ports:
       - "8081:8081"
-    environment:
-      - CONSUL_ADDRESS=consul:8500
-      - SERVICE_NAME=api-gateway
-      - SERVICE_PORT=8081
-      - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
-    restart: unless-stopped
+    volumes:
+      - api-gateway-logs:/var/log/api-gateway
     networks:
       - app-network
-
-  repair-service:
-    build:
-      context: ./repair-service
-      dockerfile: Dockerfile
     depends_on:
-      mongodb:
-        condition: service_started
       consul:
-        condition: service_started
+        condition: service_healthy
       jaeger:
         condition: service_started
       logstash:
         condition: service_healthy
-    ports:
-      - "8080:8080"
-      - "50051:50051"
     environment:
       - CONSUL_ADDRESS=consul:8500
-      - SERVICE_NAME=repair-service
-      - SERVICE_PORT=8080
       - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
-      - GRPC_PORT=50051
-      - MONGO_URI=mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin&replicaSet=rs0
-    restart: unless-stopped
-    networks:
-      - app-network
+      - SERVICE_NAME=api-gateway
+      - SERVICE_PORT=8081
 
   mechanic-service:
     build:
       context: ./mechanic-service
       dockerfile: Dockerfile
-    depends_on:
-      mongodb:
-        condition: service_started
-      consul:
-        condition: service_started
-      jaeger:
-        condition: service_started
-      logstash:
-        condition: service_healthy
-    ports:
-      - "8082:8082"
-    environment:
-      - CONSUL_ADDRESS=consul:8500
-      - SERVICE_NAME=mechanic-service
-      - SERVICE_PORT=8082
-      - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
-      - MONGO_URI=mongodb://admin:admin@mongodb:27017/repairdb?authSource=admin&replicaSet=rs0
-    restart: unless-stopped
+    container_name: mechanic-service
+    volumes:
+      - mechanic-service-logs:/var/log/mechanic-service
     networks:
       - app-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    environment:
+      - CONSUL_ADDRESS=consul:8500
+      - MONGO_URI=mongodb://mongodb:27017
+      - SERVICE_NAME=mechanic-service
+      - SERVICE_PORT=8082
+
+  repair-service:
+    build:
+      context: ./repair-service
+      dockerfile: Dockerfile
+    container_name: repair-service
+    volumes:
+      - repair-service-logs:/var/log/repair-service
+    networks:
+      - app-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    environment:
+      - CONSUL_ADDRESS=consul:8500
+      - MONGO_URI=mongodb://mongodb:27017
+      - SERVICE_NAME=repair-service
+      - SERVICE_PORT=8083
 
   mongodb:
-    image: mongo:latest
-    environment:
-      # - MONGO_INITDB_ROOT_USERNAME=admin
-      # - MONGO_INITDB_ROOT_PASSWORD=admin
-      - MONGO_INITDB_DATABASE=repairdb
-    volumes:
-      - mongodb_data:/data/db
-      - ./init_mechanics.js:/docker-entrypoint-initdb.d/init_mechanics.js:ro
-      - ./init_replica.js:/docker-entrypoint-initdb.d/init_replica.js:ro
+    image: mongo:6.0
+    container_name: mongodb
     ports:
       - "27017:27017"
-    command: mongod --replSet rs0
-    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+      - ./init_mechanics.js:/docker-entrypoint-initdb.d/init_mechanics.js:ro
+      - ./init_replica.js:/docker-entrypoint-initdb.d/init_replica.js:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  consul:
+    image: hashicorp/consul:1.15
+    container_name: consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    command: "agent -server -bootstrap-expect=1 -ui -client=0.0.0.0"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - app-network
 
@@ -127,7 +123,7 @@ services:
       - "9200:9200"
       - "9300:9300"
     networks:
-      - elastic-network
+      - app-network
     volumes:
       - es-data:/usr/share/elasticsearch/data
     healthcheck:
@@ -145,7 +141,7 @@ services:
     ports:
       - "5601:5601"
     networks:
-      - elastic-network
+      - app-network
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -162,7 +158,7 @@ services:
       - "5044:5044"
       - "9600:9600"
     networks:
-      - elastic-network
+      - app-network
     volumes:
       - ./logstash-pipeline:/usr/share/logstash/pipeline
     depends_on:
@@ -180,10 +176,12 @@ services:
     container_name: filebeat
     volumes:
       - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - go-logs:/var/log/go-app:ro
+      - api-gateway-logs:/var/log/api-gateway:ro
+      - mechanic-service-logs:/var/log/mechanic-service:ro
+      - repair-service-logs:/var/log/repair-service:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - elastic-network
+      - app-network
     depends_on:
       logstash:
         condition: service_healthy
@@ -194,16 +192,13 @@ services:
       retries: 10
       start_period: 30s
 
-volumes:
-  mongodb_data:
-    driver: local
-  es-data:
-    driver: local
-  go-logs:
-    driver: local
-
 networks:
   app-network:
     driver: bridge
-  elastic-network:
-    driver: bridge
+
+volumes:
+  es-data:
+  api-gateway-logs:
+  mechanic-service-logs:
+  repair-service-logs:
+  mongodb-data:
