@@ -1,10 +1,16 @@
 package main
 
 import (
+	"api-gateway/handlers"
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/gorilla/mux"
-	"api-gateway/handlers"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -12,18 +18,30 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-	"log"
-	"net/http"
-	"os"
-	"time"
 )
 
 func main() {
+	// Initialize structured logging
+	logFile, err := os.OpenFile("/var/log/api-gateway/api-gateway.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file", "error", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Log startup
+	slog.Info("Starting API Gateway", "app", "api-gateway", "timestamp", time.Now().Unix())
+
 	// Initialize tracer
 	shutdown, err := initTracer()
 	if err != nil {
-		log.Fatalf("Failed to initialize tracer: %v", err)
+		slog.Error("Failed to initialize tracer", "error", err)
+		os.Exit(1)
 	}
 	defer shutdown()
 
@@ -38,18 +56,19 @@ func main() {
 
 	// Define endpoints
 	r.HandleFunc("/health", repairHandler.HealthCheck).Methods("GET")
-    r.HandleFunc("/repairs", repairHandler.CreateRepair).Methods("POST")
-    r.HandleFunc("/repairs/estimate", repairHandler.EstimateRepairCost).Methods("POST")
-    r.HandleFunc("/repairs/nearby", repairHandler.ListNearbyRepairs).Methods("GET") // Moved before /repairs/{repairID}
-    r.HandleFunc("/repairs/cost/{costID}", repairHandler.GetRepairCost).Methods("GET")
-    r.HandleFunc("/repairs/{repairID}", repairHandler.GetRepair).Methods("GET")
-    r.HandleFunc("/repairs/{repairID}", repairHandler.UpdateRepair).Methods("PUT")
-    r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
+	r.HandleFunc("/repairs", repairHandler.CreateRepair).Methods("POST")
+	r.HandleFunc("/repairs/estimate", repairHandler.EstimateRepairCost).Methods("POST")
+	r.HandleFunc("/repairs/nearby", repairHandler.ListNearbyRepairs).Methods("GET")
+	r.HandleFunc("/repairs/cost/{costID}", repairHandler.GetRepairCost).Methods("GET")
+	r.HandleFunc("/repairs/{repairID}", repairHandler.GetRepair).Methods("GET")
+	r.HandleFunc("/repairs/{repairID}", repairHandler.UpdateRepair).Methods("PUT")
+	r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
 
 	// Start server
-	log.Println("API Gateway running on port 8081")
+	slog.Info("API Gateway running on port 8081")
 	if err := http.ListenAndServe(":8081", r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		slog.Error("Failed to start server", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -58,7 +77,7 @@ func initTracer() (func(), error) {
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
-	log.Printf("Initializing tracer with Jaeger endpoint: %s", jaegerEndpoint)
+	slog.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint)
 
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
@@ -74,9 +93,9 @@ func initTracer() (func(), error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
-		log.Printf("Failed to connect to Jaeger UI (health check): %v", err)
+		slog.Error("Failed to connect to Jaeger UI (health check)", "error", err)
 	} else {
-		log.Printf("Jaeger UI health check: status %d", resp.StatusCode)
+		slog.Info("Jaeger UI health check", "status_code", resp.StatusCode)
 		resp.Body.Close()
 	}
 
@@ -101,15 +120,15 @@ func initTracer() (func(), error) {
 
 	// Force export
 	if err := tp.ForceFlush(ctx); err != nil {
-		log.Printf("Failed to flush test span: %v", err)
+		slog.Error("Failed to flush test span", "error", err)
 	} else {
-		log.Printf("Test span flushed successfully")
+		slog.Info("Test span flushed successfully")
 	}
 
 	return func() {
-		log.Printf("Shutting down tracer provider")
+		slog.Info("Shutting down tracer provider")
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
+			slog.Error("Error shutting down tracer provider", "error", err)
 		}
 	}, nil
 }
