@@ -18,6 +18,7 @@ services:
       logstash:
         condition: service_healthy
     environment:
+      - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
       - SERVICE_NAME=api-gateway
@@ -40,6 +41,7 @@ services:
       logstash:
         condition: service_healthy
     environment:
+      - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - MONGO_URI=mongodb://mongodb:27017
       - SERVICE_NAME=mechanic-service
@@ -62,6 +64,7 @@ services:
       logstash:
         condition: service_healthy
     environment:
+      - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - MONGO_URI=mongodb://mongodb:27017
       - SERVICE_NAME=repair-service
