@@ -9,5 +9,17 @@ wscat -c "ws://localhost:8081/ws?userID=test-user1"
 
 curl -v -X PUT http://localhost:8081/repairs/68abfd0ca1eea024f45681f8 -H "Content-Type: application/json" -d '{"status":"in_progress"}'
 ```
+
+
+```
+GET /myapp-logs-*/_search
+{
+  "query": { "match_all": {} },
+  "from": 0,
+  "size": 100
+}
+```
+```
+```
 ```
 
