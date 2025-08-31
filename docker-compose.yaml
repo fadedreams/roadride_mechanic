@@ -68,7 +68,7 @@ services:
       - SERVICE_PORT=8083
 
   mongodb:
-    image: mongo:6.0
+    image: mongo:7.0.14
     container_name: mongodb
     ports:
       - "27017:27017"
@@ -79,11 +79,13 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017 --quiet"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s  # Increased to give MongoDB more time to initialize
+    mem_limit: 2g
+    cpus: 1.0
 
   consul:
     image: hashicorp/consul:1.15
