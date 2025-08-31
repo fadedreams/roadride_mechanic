@@ -9,6 +9,9 @@ RUN go mod download
 COPY . .
 RUN go build -o api-gateway .
 
+# Create log directory
+RUN mkdir -p /var/log/api-gateway
+
 EXPOSE 8081
 
 CMD ["./api-gateway"]
