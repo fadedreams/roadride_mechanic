@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"net"
 	"net/http"
 	"os"
-	"repair-service/domain"
-	"repair-service/service"
 	"time"
 
-	"net"
+	"log/slog"
+	"repair-service/domain"
 	"repair-service/grpcsvc"
 	"repair-service/proto"
+	"repair-service/service"
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -41,7 +40,7 @@ func initTracer() (func(), error) {
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
-	log.Printf("Initializing tracer with Jaeger endpoint: %s", jaegerEndpoint)
+	slog.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint)
 
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
@@ -50,7 +49,7 @@ func initTracer() (func(), error) {
 		otlptracehttp.WithURLPath("/v1/traces"),
 	)
 	if err != nil {
-		log.Printf("Failed to create OTLP exporter: %v", err)
+		slog.Error("Failed to create OTLP exporter", "error", err)
 		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
 	}
 
@@ -58,9 +57,9 @@ func initTracer() (func(), error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
-		log.Printf("Failed to connect to Jaeger UI (health check): %v", err)
+		slog.Error("Failed to connect to Jaeger UI (health check)", "error", err)
 	} else {
-		log.Printf("Jaeger UI health check: status %d", resp.StatusCode)
+		slog.Info("Jaeger UI health check", "status_code", resp.StatusCode)
 		resp.Body.Close()
 	}
 
@@ -77,57 +76,75 @@ func initTracer() (func(), error) {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
 	return func() {
-		log.Printf("Shutting down tracer provider")
+		slog.Info("Shutting down tracer provider")
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
+			slog.Error("Error shutting down tracer provider", "error", err)
 		}
 	}, nil
 }
 
 func connectToMongoDB(uri string, retries int, delay time.Duration) (*mongo.Client, error) {
-    var client *mongo.Client
-    var err error
+	var client *mongo.Client
+	var err error
 
-    for i := 0; i < retries; i++ {
-        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        client, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
-        if err == nil {
-            err = client.Ping(ctx, nil)
-            if err == nil {
-                // Verify replica set is initialized
-                var result struct {
-                    Ok int `bson:"ok"`
-                }
-                err = client.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(&result)
-                if err == nil && result.Ok == 1 {
-                    cancel()
-                    return client, nil
-                }
-                log.Printf("Replica set not ready: %v", err)
-            }
-        }
-        cancel()
-        log.Printf("Failed to connect to MongoDB (attempt %d/%d): %v", i+1, retries, err)
-        if i < retries-1 {
-            time.Sleep(delay)
-        }
-    }
-    return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %v", retries, err)
+	for i := 0; i < retries; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		client, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
+		if err == nil {
+			err = client.Ping(ctx, nil)
+			if err == nil {
+				// Verify replica set is initialized
+				var result struct {
+					Ok int `bson:"ok"`
+				}
+				err = client.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(&result)
+				if err == nil && result.Ok == 1 {
+					cancel()
+					slog.Info("Connected to MongoDB", "uri", uri)
+					return client, nil
+				}
+				slog.Error("Replica set not ready", "error", err)
+			}
+		}
+		cancel()
+		slog.Error("Failed to connect to MongoDB", "attempt", i+1, "max_attempts", retries, "error", err)
+		if i < retries-1 {
+			time.Sleep(delay)
+		}
+	}
+	return nil, fmt.Errorf("failed to connect to MongoDB after %d retries: %v", retries, err)
 }
 
 func main() {
+	// Initialize structured logging
+	logFile, err := os.OpenFile("/var/log/repair-service/repair-service.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file", "error", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Log startup
+	slog.Info("Starting repair-service", "app", "repair-service", "timestamp", time.Now().Unix())
+
 	// Initialize tracer
 	shutdown, err := initTracer()
 	if err != nil {
-		log.Fatalf("Failed to initialize tracer: %v", err)
+		slog.Error("Failed to initialize tracer", "error", err)
+		os.Exit(1)
 	}
 	defer shutdown()
 
 	// Connect to MongoDB with retries
-	// client, err := connectToMongoDB("mongodb://admin:admin@mongodb:27017", 5, 2*time.Second)
 	client, err := connectToMongoDB("mongodb://mongodb:27017/repairdb?replicaSet=rs0", 5, 2*time.Second)
 	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
+		slog.Error("Failed to connect to MongoDB", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize Consul client
@@ -139,7 +156,8 @@ func main() {
 	consulConfig.Address = consulAddr
 	consulClient, err := api.NewClient(consulConfig)
 	if err != nil {
-		log.Fatalf("Failed to create Consul client: %v", err)
+		slog.Error("Failed to create Consul client", "error", err)
+		os.Exit(1)
 	}
 
 	// Register service with Consul
@@ -164,7 +182,8 @@ func main() {
 		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
-		log.Fatalf("Failed to register with Consul: %v", err)
+		slog.Error("Failed to register with Consul", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize repository and service
@@ -179,6 +198,7 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer("repair-service").Start(r.Context(), "HealthCheck")
 		defer span.End()
+		slog.Info("Health check requested")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "OK")
 	}).Methods("GET")
@@ -188,18 +208,18 @@ func main() {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "CreateRepair")
 		defer span.End()
 
-		log.Println("Received POST /repairs request")
+		slog.Info("Received POST /repairs request")
 		var cost domain.RepairCostModel
 		if err := json.NewDecoder(r.Body).Decode(&cost); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Invalid request body")
-			log.Printf("Failed to decode request body: %v", err)
+			slog.Error("Failed to decode request body", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid request body: %v", err)})
 			return
 		}
-		log.Printf("Decoded cost: %+v", cost)
+		slog.Info("Decoded cost", "cost", fmt.Sprintf("%+v", cost))
 		span.SetAttributes(
 			attribute.String("userID", cost.UserID),
 			attribute.String("repairType", cost.RepairType),
@@ -207,14 +227,14 @@ func main() {
 		)
 		if cost.ID == "" {
 			cost.ID = primitive.NewObjectID().Hex()
-			log.Printf("Generated new ID for cost: %s", cost.ID)
+			slog.Info("Generated new ID for cost", "costID", cost.ID)
 			span.SetAttributes(attribute.String("costID", cost.ID))
 		}
 		repair, err := svc.CreateRepair(ctx, &cost)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to create repair")
-			log.Printf("Failed to create repair: %v", err)
+			slog.Error("Failed to create repair", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create repair: %v", err)})
@@ -224,12 +244,12 @@ func main() {
 		if err := json.NewEncoder(w).Encode(repair); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			log.Printf("Failed to encode response: %v", err)
+			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
 			return
 		}
-		log.Println("Successfully sent response for POST /repairs")
+		slog.Info("Successfully sent response for POST /repairs")
 	}).Methods("POST")
 
 	// Estimate repair cost endpoint
@@ -245,7 +265,7 @@ func main() {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Invalid request body")
-			log.Printf("Failed to decode request body: %v", err)
+			slog.Error("Failed to decode request body", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
@@ -261,7 +281,7 @@ func main() {
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to estimate repair cost")
-			log.Printf("Failed to estimate repair cost: %v", err)
+			slog.Error("Failed to estimate repair cost", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to estimate repair cost: %v", err)})
@@ -271,7 +291,7 @@ func main() {
 		if err := json.NewEncoder(w).Encode(cost); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			log.Printf("Failed to encode response: %v", err)
+			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
 			return
@@ -283,12 +303,12 @@ func main() {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetAllRepairs")
 		defer span.End()
 
-		log.Println("Received GET /repairs request")
+		slog.Info("Received GET /repairs request")
 		repairs, err := svc.GetAllRepairs(ctx)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to get repairs")
-			log.Printf("Failed to get repairs: %v", err)
+			slog.Error("Failed to get repairs", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get repairs: %v", err)})
@@ -301,40 +321,43 @@ func main() {
 		if err := json.NewEncoder(w).Encode(repairs); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			log.Printf("Failed to encode response: %v", err)
+			slog.Error("Failed to encode response", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to encode response: %v", err)})
 			return
 		}
-		log.Println("Successfully sent response for GET /repairs")
+		slog.Info("Successfully sent response for GET /repairs")
 	}).Methods("GET")
 
-// Start gRPC server in a separate goroutine
-    go func() {
-        grpcPort := os.Getenv("GRPC_PORT")
-        if grpcPort == "" {
-            grpcPort = "50051"
-        }
-        lis, err := net.Listen("tcp", ":"+grpcPort)
-        if err != nil {
-            log.Fatalf("Failed to listen for gRPC: %v", err)
-        }
-        grpcServer := grpc.NewServer()
-        proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo))
-        reflection.Register(grpcServer) // Enable reflection for debugging
-        log.Printf("Starting gRPC server on port %s", grpcPort)
-        if err := grpcServer.Serve(lis); err != nil {
-            log.Fatalf("Failed to start gRPC server: %v", err)
-        }
-    }()
+	// Start gRPC server in a separate goroutine
+	go func() {
+		grpcPort := os.Getenv("GRPC_PORT")
+		if grpcPort == "" {
+			grpcPort = "50051"
+		}
+		lis, err := net.Listen("tcp", ":"+grpcPort)
+		if err != nil {
+			slog.Error("Failed to listen for gRPC", "error", err)
+			os.Exit(1)
+		}
+		grpcServer := grpc.NewServer()
+		proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo))
+		reflection.Register(grpcServer) // Enable reflection for debugging
+		slog.Info("Starting gRPC server", "port", grpcPort)
+		if err := grpcServer.Serve(lis); err != nil {
+			slog.Error("Failed to start gRPC server", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	// Start server
 	port := os.Getenv("SERVICE_PORT")
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("Starting repair-service on port %s", port)
+	slog.Info("Starting repair-service", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		slog.Error("Failed to start server", "error", err)
+		os.Exit(1)
 	}
 }
