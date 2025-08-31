@@ -9,6 +9,9 @@ RUN go mod download
 COPY . .
 RUN go build -o mechanic-service .
 
+# Create log directory
+RUN mkdir -p /var/log/mechanic-service
+
 EXPOSE 8082
 
 CMD ["./mechanic-service"]

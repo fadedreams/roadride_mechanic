@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"mechanic-service/domain"
 
@@ -49,6 +50,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 		err := fmt.Errorf("mechanic ID is required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		slog.Error("Mechanic ID is required", "app", "mechanic-service")
 		return nil, err
 	}
 
@@ -57,7 +59,8 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find mechanic")
-		return nil, fmt.Errorf("failed to find mechanic: %v", err)
+		slog.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
+		return nil, fmt.Errorf("failed to find mechanic: %w", err)
 	}
 	mechanicLoc := mechanic.Location
 	span.SetAttributes(
@@ -71,7 +74,8 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to query repairs")
-		return nil, fmt.Errorf("failed to query repairs: %v", err)
+		slog.Error("Failed to query repairs", "error", err, "app", "mechanic-service")
+		return nil, fmt.Errorf("failed to query repairs: %w", err)
 	}
 
 	var nearby []*domain.Repair
@@ -84,6 +88,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 		}
 	}
 	span.SetAttributes(attribute.Int("nearbyRepairCount", len(nearby)))
+	slog.Info("Listed nearby repairs", "repairCount", len(nearby), "mechanicID", mechanicID, "app", "mechanic-service")
 
 	return nearby, nil
 }
@@ -97,6 +102,7 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 		err := fmt.Errorf("repair ID and mechanic ID are required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		slog.Error("Repair ID and mechanic ID are required", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
 		return nil, err
 	}
 
@@ -105,7 +111,8 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find mechanic")
-		return nil, fmt.Errorf("failed to find mechanic: %v", err)
+		slog.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
+		return nil, fmt.Errorf("failed to find mechanic: %w", err)
 	}
 
 	// Assign the repair
@@ -113,9 +120,11 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to assign repair")
-		return nil, fmt.Errorf("failed to assign repair: %v", err)
+		slog.Error("Failed to assign repair", "error", err, "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
+		return nil, fmt.Errorf("failed to assign repair: %w", err)
 	}
 
+	slog.Info("Assigned repair", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
 	span.SetAttributes(
 		attribute.String("repairID", repairID),
 		attribute.String("mechanicID", mechanicID),
