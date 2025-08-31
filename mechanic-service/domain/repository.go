@@ -50,6 +50,7 @@ func (r *MongoRepository) GetMechanicByID(ctx context.Context, id string) (*Mech
 }
 
 // GetAllRepairs retrieves all repairs
+// GetAllRepairs retrieves all repairs
 func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*Repair, error) {
 	_, span := otel.Tracer("mechanic-service").Start(ctx, "MongoGetAllRepairs")
 	defer span.End()
@@ -64,7 +65,7 @@ func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*Repair, error) 
 	defer cursor.Close(ctx)
 
 	for cursor.Next(ctx) {
-		chSpan := otel.Tracer("mechanic-service").Start(ctx, "MongoDecodeRepair")
+		_, chSpan := otel.Tracer("mechanic-service").Start(ctx, "MongoDecodeRepair") // Fix: Use _ to ignore the context
 		var repair Repair
 		if err := cursor.Decode(&repair); err != nil {
 			chSpan.RecordError(err)
@@ -86,7 +87,6 @@ func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*Repair, error) 
 	)
 	return repairs, nil
 }
-
 // AssignRepair assigns a mechanic to a repair
 func (r *MongoRepository) AssignRepair(ctx context.Context, repairID, mechanicID string) (*Repair, error) {
 	_, span := otel.Tracer("mechanic-service").Start(ctx, "MongoAssignRepair")

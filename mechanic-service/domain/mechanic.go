@@ -1,6 +1,5 @@
 package domain
 
-import "context"
 
 // Repair represents a repair request
 type Repair struct {
