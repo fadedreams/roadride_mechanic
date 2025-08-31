@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"log/slog"
 )
 
 // service implements the RepairService interface
@@ -24,14 +25,16 @@ type service struct {
 	repo       domain.RepairRepository
 	httpClient *http.Client
 	tracer     trace.Tracer
+	logger     *slog.Logger
 }
 
 // NewService creates a new instance of the repair service
-func NewService(repo domain.RepairRepository) *service {
+func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
 	return &service{
 		repo:       repo,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		tracer:     otel.Tracer("repair-service"),
+		logger:     logger,
 	}
 }
 
@@ -45,6 +48,7 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 		err := errors.New("invalid repair cost data")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid repair cost data", "error", err)
 		return nil, err
 	}
 	span.SetAttributes(
@@ -58,8 +62,10 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to save repair cost")
+		s.logger.Error("Failed to save repair cost", "error", err)
 		return nil, err
 	}
+	s.logger.Info("Saved repair cost", "costID", cost.ID)
 
 	// Create a new repair with a unique ID
 	repair := &domain.RepairModel{
@@ -75,8 +81,10 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create repair")
+		s.logger.Error("Failed to create repair", "error", err)
 		return nil, err
 	}
+	s.logger.Info("Created repair", "repairID", repair.ID)
 
 	return createdRepair, nil
 }
@@ -91,6 +99,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 		err := errors.New("repair type, user ID, and location are required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid input for estimate", "error", err)
 		return nil, err
 	}
 	span.SetAttributes(
@@ -113,18 +122,22 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 		err := errors.New("unknown repair type")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Unknown repair type", "repairType", repairType)
 		return nil, err
 	}
 	span.SetAttributes(attribute.Float64("totalPrice", totalPrice))
+	s.logger.Info("Estimated total price", "repairType", repairType, "totalPrice", totalPrice)
 
 	// Get all mechanics
 	mechanics, err := s.repo.GetAllMechanics(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to get mechanics")
+		s.logger.Error("Failed to get mechanics", "error", err)
 		return nil, fmt.Errorf("failed to get mechanics: %v", err)
 	}
 	span.SetAttributes(attribute.Int("mechanicCount", len(mechanics)))
+	s.logger.Info("Retrieved mechanics", "count", len(mechanics))
 
 	// Prepare coordinates for OSRM table request
 	coordinates := []string{
@@ -140,6 +153,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create OSRM request")
+		s.logger.Error("Failed to create OSRM request", "error", err)
 		return nil, fmt.Errorf("failed to create OSRM request: %v", err)
 	}
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
@@ -149,6 +163,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to call OSRM table service")
+		s.logger.Error("Failed to call OSRM table service", "error", err)
 		return nil, fmt.Errorf("failed to call OSRM table service: %v", err)
 	}
 	defer resp.Body.Close()
@@ -157,6 +172,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 		err := fmt.Errorf("OSRM table service returned status %d", resp.StatusCode)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("OSRM table service error", "status_code", resp.StatusCode)
 		return nil, err
 	}
 
@@ -167,12 +183,14 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to decode OSRM response")
+		s.logger.Error("Failed to decode OSRM response", "error", err)
 		return nil, fmt.Errorf("failed to decode OSRM response: %v", err)
 	}
 	if osrmResp.Code != "Ok" {
 		err := fmt.Errorf("OSRM table service returned code: %s", osrmResp.Code)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("OSRM table service returned non-OK code", "code", osrmResp.Code)
 		return nil, err
 	}
 
@@ -180,10 +198,11 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	var mechanicInfos []domain.MechanicInfo
 	for i, mechanic := range mechanics {
 		if i+1 >= len(osrmResp.Durations[0]) {
-			continue // Skip if no duration data
+			s.logger.Warn("Skipping mechanic due to missing duration data", "mechanicID", mechanic.ID)
+			continue
 		}
-		duration := osrmResp.Durations[0][i+1] // Duration from user (source 0) to mechanic
-		distance := duration * (50000.0 / 3600.0) // Convert seconds to meters (50 km/h = 50000 m/3600 s)
+		duration := osrmResp.Durations[0][i+1]
+		distance := duration * (50000.0 / 3600.0)
 		mechanicInfos = append(mechanicInfos, domain.MechanicInfo{
 			ID:       mechanic.ID,
 			Name:     mechanic.Name,
@@ -191,6 +210,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 			Distance: distance,
 		})
 	}
+	s.logger.Info("Calculated distances for mechanics", "count", len(mechanicInfos))
 
 	// Sort mechanics by distance
 	sort.Slice(mechanicInfos, func(i, j int) bool {
@@ -207,6 +227,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 		Mechanics:    mechanicInfos,
 	}
 	span.SetAttributes(attribute.String("costID", cost.ID))
+	s.logger.Info("Created repair cost model", "costID", cost.ID)
 
 	return cost, nil
 }
@@ -221,6 +242,7 @@ func (s *service) GetAndValidateRepairCost(ctx context.Context, costID, userID s
 		err := errors.New("cost ID and user ID are required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid input for get repair cost", "error", err)
 		return nil, err
 	}
 	span.SetAttributes(
@@ -233,14 +255,17 @@ func (s *service) GetAndValidateRepairCost(ctx context.Context, costID, userID s
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to get repair cost")
+		s.logger.Error("Failed to get repair cost", "error", err)
 		return nil, err
 	}
+	s.logger.Info("Retrieved repair cost", "costID", costID)
 
 	// Validate user ownership
 	if cost.UserID != userID {
 		err := errors.New("repair cost does not belong to the specified user")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Repair cost ownership validation failed", "costID", costID, "userID", userID)
 		return nil, err
 	}
 
@@ -257,6 +282,7 @@ func (s *service) GetRepairByID(ctx context.Context, id string) (*domain.RepairM
 		err := errors.New("repair ID is required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid repair ID", "error", err)
 		return nil, err
 	}
 	span.SetAttributes(attribute.String("repairID", id))
@@ -266,8 +292,10 @@ func (s *service) GetRepairByID(ctx context.Context, id string) (*domain.RepairM
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to get repair")
+		s.logger.Error("Failed to get repair", "error", err)
 		return nil, err
 	}
+	s.logger.Info("Retrieved repair", "repairID", id)
 
 	return repair, nil
 }
@@ -282,8 +310,10 @@ func (s *service) GetAllRepairs(ctx context.Context) ([]*domain.RepairModel, err
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find repairs")
+		s.logger.Error("Failed to find repairs", "error", err)
 		return nil, fmt.Errorf("failed to find repairs: %v", err)
 	}
+	s.logger.Info("Retrieved all repairs", "count", len(repairs))
 
 	span.SetAttributes(
 		attribute.Int("repairCount", len(repairs)),
@@ -302,6 +332,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		err := errors.New("repair ID and status are required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid input for update repair", "error", err)
 		return err
 	}
 	span.SetAttributes(
@@ -320,6 +351,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		err := errors.New("invalid status")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.logger.Error("Invalid status", "status", status)
 		return err
 	}
 
@@ -328,8 +360,10 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to update repair")
+		s.logger.Error("Failed to update repair", "error", err)
 		return err
 	}
+	s.logger.Info("Updated repair", "repairID", repairID, "status", status)
 
 	return nil
 }

@@ -188,7 +188,7 @@ func main() {
 
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
-	svc := service.NewService(repo)
+	svc := service.NewService(repo, logger)
 
 	// Initialize router
 	r := mux.NewRouter()
@@ -341,7 +341,7 @@ func main() {
 			os.Exit(1)
 		}
 		grpcServer := grpc.NewServer()
-		proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo))
+		proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo, logger))
 		reflection.Register(grpcServer) // Enable reflection for debugging
 		slog.Info("Starting gRPC server", "port", grpcPort)
 		if err := grpcServer.Serve(lis); err != nil {
