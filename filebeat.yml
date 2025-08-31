@@ -1,27 +1,30 @@
 filebeat.inputs:
-- type: filestream
-  id: api-gateway-logs
+- type: log
+  enabled: true
   paths:
-    - /var/log/api-gateway/*.log
+    - /var/log/api-gateway/api-gateway.log
   fields:
     app: api-gateway
   fields_under_root: true
 
-- type: filestream
-  id: mechanic-service-logs
+- type: log
+  enabled: true
   paths:
-    - /var/log/mechanic-service/*.log
-  fields:
-    app: mechanic-service
-  fields_under_root: true
-
-- type: filestream
-  id: repair-service-logs
-  paths:
-    - /var/log/repair-service/*.log
+    - /var/log/repair-service/repair-service.log
   fields:
     app: repair-service
   fields_under_root: true
 
+- type: log
+  enabled: true
+  paths:
+    - /var/log/mechanic-service/mechanic-service.log
+  fields:
+    app: mechanic-service
+  fields_under_root: true
+
 output.logstash:
   hosts: ["logstash:5044"]
+
+setup.kibana:
+  host: "kibana:5601"
