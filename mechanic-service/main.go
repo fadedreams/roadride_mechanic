@@ -1,9 +1,17 @@
-// mechanic-service/main.go
 package main
 
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"log/slog"
+	"mechanic-service/domain"
+	"mechanic-service/handlers"
+	"mechanic-service/service"
+
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -15,104 +23,15 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"log"
-	"net/http"
-	"os"
-	"time"
-	"mechanic-service/domain"
-	"mechanic-service/handlers"
-	"mechanic-service/service"
 )
 
-func main() {
-	// Initialize tracer
-	shutdown, err := initTracer()
-	if err != nil {
-		log.Fatalf("Failed to initialize tracer: %v", err)
-	}
-	defer shutdown()
-
-	// Initialize Consul client and register service
-	consulAddr := os.Getenv("CONSUL_ADDRESS")
-	if consulAddr == "" {
-		consulAddr = "consul:8500"
-	}
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = consulAddr
-	consulClient, err := api.NewClient(consulConfig)
-	if err != nil {
-		log.Fatalf("Failed to create Consul client: %v", err)
-	}
-
-	serviceName := os.Getenv("SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "mechanic-service"
-	}
-	servicePort := os.Getenv("SERVICE_PORT")
-	if servicePort == "" {
-		servicePort = "8082"
-	}
-	serviceID := serviceName + "-" + servicePort
-	registration := &api.AgentServiceRegistration{
-		ID:      serviceID,
-		Name:    serviceName,
-		Port:    8082,
-		Address: "mechanic-service",
-		Check: &api.AgentServiceCheck{
-			HTTP:     fmt.Sprintf("http://mechanic-service:8082/health"),
-			Interval: "10s",
-			Timeout:  "5s",
-		},
-	}
-	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
-		log.Fatalf("Failed to register with Consul: %v", err)
-	}
-	log.Printf("Registered %s with Consul", serviceID)
-
-	// Initialize MongoDB
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://mongodb:27017/repairdb?replicaSet=rs0"
-	}
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
-	}
-	defer func() {
-		if err := client.Disconnect(context.Background()); err != nil {
-			log.Printf("Failed to disconnect from MongoDB: %v", err)
-		}
-	}()
-	log.Println("Connected to MongoDB")
-
-	// Initialize repository and service
-	repo := domain.NewMongoRepository(client)
-	svc := service.NewService(repo)
-
-	// Initialize handler with service
-	handler := handlers.NewMechanicHandler(svc)
-
-	// Initialize router
-	r := mux.NewRouter()
-
-	// Define endpoints
-	r.HandleFunc("/health", handler.HealthCheck).Methods("GET")
-	r.HandleFunc("/repairs/nearby", handler.ListNearbyRepairs).Methods("GET")
-	r.HandleFunc("/repairs/{repairID}/assign", handler.AssignRepair).Methods("POST")
-
-	// Start server
-	log.Println("Mechanic Service running on port 8082")
-	if err := http.ListenAndServe(":8082", r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
-}
-
+// initTracer initializes OpenTelemetry tracer
 func initTracer() (func(), error) {
 	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
-	log.Printf("Initializing tracer with Jaeger endpoint: %s", jaegerEndpoint)
+	slog.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint, "app", "mechanic-service")
 
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
@@ -121,16 +40,17 @@ func initTracer() (func(), error) {
 		otlptracehttp.WithURLPath("/v1/traces"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
+		slog.Error("Failed to create OTLP exporter", "error", err, "app", "mechanic-service")
+		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
 	// Test Jaeger connectivity
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
-		log.Printf("Failed to connect to Jaeger UI (health check): %v", err)
+		slog.Error("Failed to connect to Jaeger UI (health check)", "error", err, "app", "mechanic-service")
 	} else {
-		log.Printf("Jaeger UI health check: status %d", resp.StatusCode)
+		slog.Info("Jaeger UI health check", "status_code", resp.StatusCode, "app", "mechanic-service")
 		resp.Body.Close()
 	}
 
@@ -154,15 +74,119 @@ func initTracer() (func(), error) {
 	span.End()
 
 	if err := tp.ForceFlush(ctx); err != nil {
-		log.Printf("Failed to flush test span: %v", err)
+		slog.Error("Failed to flush test span", "error", err, "app", "mechanic-service")
 	} else {
-		log.Printf("Test span flushed successfully")
+		slog.Info("Test span flushed successfully", "app", "mechanic-service")
 	}
 
 	return func() {
-		log.Printf("Shutting down tracer provider")
+		slog.Info("Shutting down tracer provider", "app", "mechanic-service")
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
+			slog.Error("Error shutting down tracer provider", "error", err, "app", "mechanic-service")
 		}
 	}, nil
+}
+
+func main() {
+	// Initialize structured logging
+	logFile, err := os.OpenFile("/var/log/mechanic-service/mechanic-service.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file", "error", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Log startup
+	slog.Info("Starting mechanic-service", "app", "mechanic-service", "timestamp", time.Now().Unix())
+
+	// Initialize tracer
+	shutdown, err := initTracer()
+	if err != nil {
+		slog.Error("Failed to initialize tracer", "error", err, "app", "mechanic-service")
+		os.Exit(1)
+	}
+	defer shutdown()
+
+	// Initialize Consul client and register service
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		slog.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
+		os.Exit(1)
+	}
+
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "mechanic-service"
+	}
+	servicePort := os.Getenv("SERVICE_PORT")
+	if servicePort == "" {
+		servicePort = "8082"
+	}
+	serviceID := serviceName + "-" + servicePort
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8082,
+		Address: "mechanic-service",
+		Check: &api.AgentServiceCheck{
+			HTTP:     fmt.Sprintf("http://mechanic-service:%s/health", servicePort),
+			Interval: "10s",
+			Timeout:  "5s",
+		},
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		slog.Error("Failed to register with Consul", "error", err, "app", "mechanic-service")
+		os.Exit(1)
+	}
+	slog.Info("Registered with Consul", "service_id", serviceID, "app", "mechanic-service")
+
+	// Initialize MongoDB
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://mongodb:27017/repairdb?replicaSet=rs0"
+	}
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		slog.Error("Failed to connect to MongoDB", "error", err, "app", "mechanic-service")
+		os.Exit(1)
+	}
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			slog.Error("Failed to disconnect from MongoDB", "error", err, "app", "mechanic-service")
+		}
+	}()
+	slog.Info("Connected to MongoDB", "uri", mongoURI, "app", "mechanic-service")
+
+	// Initialize repository and service
+	repo := domain.NewMongoRepository(client)
+	svc := service.NewService(repo)
+
+	// Initialize handler with service
+	handler := handlers.NewMechanicHandler(svc)
+
+	// Initialize router
+	r := mux.NewRouter()
+
+	// Define endpoints
+	r.HandleFunc("/health", handler.HealthCheck).Methods("GET")
+	r.HandleFunc("/repairs/nearby", handler.ListNearbyRepairs).Methods("GET")
+	r.HandleFunc("/repairs/{repairID}/assign", handler.AssignRepair).Methods("POST")
+
+	// Start server
+	slog.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
+	if err := http.ListenAndServe(":"+servicePort, r); err != nil {
+		slog.Error("Failed to start server", "error", err, "app", "mechanic-service")
+		os.Exit(1)
+	}
 }
