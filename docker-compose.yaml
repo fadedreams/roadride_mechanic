@@ -180,70 +180,6 @@ services:
       retries: 10
       start_period: 30s
 
-  kafka:
-    image: bitnami/kafka:3.6
-    container_name: kafka
-    ports:
-      - "9092:9092"
-    environment:
-      # — KRaft single-node basics —
-      KAFKA_ENABLE_KRAFT: "yes"
-      KAFKA_KRAFT_CLUSTER_ID: "XqZrTh1yT8qXwjsn1a6L9A"
-      KAFKA_CFG_NODE_ID: "1"
-      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
-      # — Listeners —
-      KAFKA_CFG_LISTENERS: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
-      ALLOW_PLAINTEXT_LISTENER: "yes"
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka-data:/bitnami/kafka
-    networks:
-      - app-network
-
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.5.0
-    container_name: schema-registry
-    depends_on:
-      - kafka
-    ports:
-      - "8070:8070"  # Changed
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
-      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8070"
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka:9094"
-    volumes:
-      - schema-registry-logs:/var/log/schema-registry
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8070/subjects"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    depends_on:
-      - kafka
-      - schema-registry
-    ports:
-      - "8071:8071"  # Changed
-    environment:
-      KAFKA_CLUSTERS_0_NAME: "dev"
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8070"
-      AUTH_TYPE: "DISABLED"
-    volumes:
-      - kafka-ui-logs:/logs
-    networks:
-      - app-network
 
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.7.1
@@ -268,6 +204,58 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  kafka:
+    image: bitnami/kafka:3.6
+    ports:
+      - "9092:9092"          # host → external listener
+    environment:
+      # — KRaft single‑node basics —
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_KRAFT_CLUSTER_ID: "XqZrTh1yT8qXwjsn1a6L9A"
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # — Listeners —
+      KAFKA_CFG_LISTENERS: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - app-network
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka:9094"
+    networks:
+      - app-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "dev"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8081"
+      AUTH_TYPE: "DISABLED"
+    networks:
+      - app-network
 
 networks:
   app-network:
