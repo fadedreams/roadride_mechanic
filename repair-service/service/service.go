@@ -99,8 +99,8 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	s.logger.Info("Created repair", "repairID", repair.ID)
 
 	// Publish to Kafka
-	if s.producer != nil {
-		if err := s.producer.PublishRepair(ctx, createdRepair); err != nil {
+	if s.Producer != nil {
+		if err := s.Producer.PublishRepair(ctx, createdRepair); err != nil {
 			s.logger.Error("Failed to publish repair to Kafka", "error", err)
 			// Log error but don't fail the request
 		}
@@ -390,8 +390,8 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 	}
 
 	// Publish to Kafka
-	if s.producer != nil {
-		if err := s.producer.PublishRepair(ctx, repair); err != nil {
+	if s.Producer != nil {
+		if err := s.Producer.PublishRepair(ctx, repair); err != nil {
 			s.logger.Error("Failed to publish repair update to Kafka", "error", err)
 			// Log error but don't fail the request
 		}
