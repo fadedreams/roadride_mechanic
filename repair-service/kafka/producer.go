@@ -17,7 +17,7 @@ import (
 )
 
 type Producer struct {
-	producer       *kafka.Producer
+	Producer       *kafka.Producer
 	schemaRegistry *srclient.SchemaRegistryClient
 	schema         avro.Schema
 	schemaID       int

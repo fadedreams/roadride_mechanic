@@ -25,7 +25,7 @@ import (
 type service struct {
 	repo       domain.RepairRepository
 	httpClient *http.Client
-	producer   *kafka.Producer
+	Producer   *kafka.Producer
 	tracer     trace.Tracer
 	logger     *slog.Logger
 }
@@ -41,10 +41,17 @@ func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
 	return &service{
 		repo:       repo,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		producer:   producer,
+		Producer:   producer,
 		tracer:     otel.Tracer("repair-service"),
 		logger:     logger,
 	}
+}
+// Close shuts down the service's resources, including the Kafka producer
+func (s *service) Close() {
+    if s.Producer != nil {
+        s.logger.Info("Closing Kafka producer")
+        s.Producer.Close()
+    }
 }
 
 // CreateRepair creates a new repair request with the provided cost

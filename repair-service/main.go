@@ -192,8 +192,8 @@ func main() {
 	repo := domain.NewMongoRepository(client)
 	svc := service.NewService(repo, logger)
 	defer func() {
-		if svc.producer != nil {
-			svc.producer.Close()
+		if svc.Producer != nil {
+			svc.Producer.Close()
 		}
 	}()
 
