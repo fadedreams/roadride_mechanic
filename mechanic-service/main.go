@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"mechanic-service/domain"
 	"mechanic-service/handlers"
+	"mechanic-service/logging"
 	"mechanic-service/service"
 
 	"github.com/gorilla/mux"
@@ -26,12 +27,12 @@ import (
 )
 
 // initTracer initializes OpenTelemetry tracer
-func initTracer() (func(), error) {
+func initTracer(logger *slog.Logger) (func(), error) {
 	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
-	slog.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint, "app", "mechanic-service")
+	logger.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint, "app", "mechanic-service")
 
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
@@ -40,7 +41,7 @@ func initTracer() (func(), error) {
 		otlptracehttp.WithURLPath("/v1/traces"),
 	)
 	if err != nil {
-		slog.Error("Failed to create OTLP exporter", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to create OTLP exporter", "error", err, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
@@ -48,9 +49,9 @@ func initTracer() (func(), error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
-		slog.Error("Failed to connect to Jaeger UI (health check)", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to connect to Jaeger UI (health check)", "error", err, "app", "mechanic-service")
 	} else {
-		slog.Info("Jaeger UI health check", "status_code", resp.StatusCode, "app", "mechanic-service")
+		logger.Info("Jaeger UI health check", "status_code", resp.StatusCode, "app", "mechanic-service")
 		resp.Body.Close()
 	}
 
@@ -74,40 +75,36 @@ func initTracer() (func(), error) {
 	span.End()
 
 	if err := tp.ForceFlush(ctx); err != nil {
-		slog.Error("Failed to flush test span", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to flush test span", "error", err, "app", "mechanic-service")
 	} else {
-		slog.Info("Test span flushed successfully", "app", "mechanic-service")
+		logger.Info("Test span flushed successfully", "app", "mechanic-service")
 	}
 
 	return func() {
-		slog.Info("Shutting down tracer provider", "app", "mechanic-service")
+		logger.Info("Shutting down tracer provider", "app", "mechanic-service")
 		if err := tp.Shutdown(context.Background()); err != nil {
-			slog.Error("Error shutting down tracer provider", "error", err, "app", "mechanic-service")
+			logger.Error("Error shutting down tracer provider", "error", err, "app", "mechanic-service")
 		}
 	}, nil
 }
 
 func main() {
 	// Initialize structured logging
-	logFile, err := os.OpenFile("/var/log/mechanic-service/mechanic-service.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logger, logFile, err := logging.NewLogger()
 	if err != nil {
-		slog.Error("Failed to open log file", "error", err)
+		slog.Error("Failed to initialize logger", "error", err)
 		os.Exit(1)
 	}
 	defer logFile.Close()
-	logger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-		AddSource: true,
-		Level:     slog.LevelInfo,
-	}))
 	slog.SetDefault(logger)
 
 	// Log startup
-	slog.Info("Starting mechanic-service", "app", "mechanic-service", "timestamp", time.Now().Unix())
+	logger.Info("Starting mechanic-service", "app", "mechanic-service", "timestamp", time.Now().Unix())
 
 	// Initialize tracer
-	shutdown, err := initTracer()
+	shutdown, err := initTracer(logger)
 	if err != nil {
-		slog.Error("Failed to initialize tracer", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to initialize tracer", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
 	defer shutdown()
@@ -121,7 +118,7 @@ func main() {
 	consulConfig.Address = consulAddr
 	consulClient, err := api.NewClient(consulConfig)
 	if err != nil {
-		slog.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
 
@@ -146,10 +143,10 @@ func main() {
 		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
-		slog.Error("Failed to register with Consul", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to register with Consul", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
-	slog.Info("Registered with Consul", "service_id", serviceID, "app", "mechanic-service")
+	logger.Info("Registered with Consul", "service_id", serviceID, "app", "mechanic-service")
 
 	// Initialize MongoDB
 	mongoURI := os.Getenv("MONGO_URI")
@@ -158,22 +155,22 @@ func main() {
 	}
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
 	if err != nil {
-		slog.Error("Failed to connect to MongoDB", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to connect to MongoDB", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
 	defer func() {
 		if err := client.Disconnect(context.Background()); err != nil {
-			slog.Error("Failed to disconnect from MongoDB", "error", err, "app", "mechanic-service")
+			logger.Error("Failed to disconnect from MongoDB", "error", err, "app", "mechanic-service")
 		}
 	}()
-	slog.Info("Connected to MongoDB", "uri", mongoURI, "app", "mechanic-service")
+	logger.Info("Connected to MongoDB", "uri", mongoURI, "app", "mechanic-service")
 
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
-	svc := service.NewService(repo)
+	svc := service.NewService(repo, logger)
 
 	// Initialize handler with service
-	handler := handlers.NewMechanicHandler(svc)
+	handler := handlers.NewMechanicHandler(svc, logger)
 
 	// Initialize router
 	r := mux.NewRouter()
@@ -184,9 +181,9 @@ func main() {
 	r.HandleFunc("/repairs/{repairID}/assign", handler.AssignRepair).Methods("POST")
 
 	// Start server
-	slog.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
+	logger.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
 	if err := http.ListenAndServe(":"+servicePort, r); err != nil {
-		slog.Error("Failed to start server", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to start server", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
 }

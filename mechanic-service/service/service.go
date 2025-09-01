@@ -17,13 +17,15 @@ import (
 type Service struct {
 	repo   domain.MechanicRepository
 	tracer trace.Tracer
+	logger *slog.Logger
 }
 
 // NewService creates a new instance of the mechanic service
-func NewService(repo domain.MechanicRepository) *Service {
+func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 	return &Service{
 		repo:   repo,
 		tracer: otel.Tracer("mechanic-service"),
+		logger: logger,
 	}
 }
 
@@ -50,7 +52,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 		err := fmt.Errorf("mechanic ID is required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		slog.Error("Mechanic ID is required", "app", "mechanic-service")
+		s.logger.Error("Mechanic ID is required", "app", "mechanic-service")
 		return nil, err
 	}
 
@@ -59,7 +61,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find mechanic")
-		slog.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
+		s.logger.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to find mechanic: %w", err)
 	}
 	mechanicLoc := mechanic.Location
@@ -74,7 +76,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to query repairs")
-		slog.Error("Failed to query repairs", "error", err, "app", "mechanic-service")
+		s.logger.Error("Failed to query repairs", "error", err, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to query repairs: %w", err)
 	}
 
@@ -88,7 +90,7 @@ func (s *Service) ListNearbyRepairs(ctx context.Context, mechanicID string) ([]*
 		}
 	}
 	span.SetAttributes(attribute.Int("nearbyRepairCount", len(nearby)))
-	slog.Info("Listed nearby repairs", "repairCount", len(nearby), "mechanicID", mechanicID, "app", "mechanic-service")
+	s.logger.Info("Listed nearby repairs", "repairCount", len(nearby), "mechanicID", mechanicID, "app", "mechanic-service")
 
 	return nearby, nil
 }
@@ -102,7 +104,7 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 		err := fmt.Errorf("repair ID and mechanic ID are required")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		slog.Error("Repair ID and mechanic ID are required", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
+		s.logger.Error("Repair ID and mechanic ID are required", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
 		return nil, err
 	}
 
@@ -111,7 +113,7 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to find mechanic")
-		slog.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
+		s.logger.Error("Failed to find mechanic", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to find mechanic: %w", err)
 	}
 
@@ -120,11 +122,11 @@ func (s *Service) AssignRepair(ctx context.Context, repairID, mechanicID string)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to assign repair")
-		slog.Error("Failed to assign repair", "error", err, "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
+		s.logger.Error("Failed to assign repair", "error", err, "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to assign repair: %w", err)
 	}
 
-	slog.Info("Assigned repair", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
+	s.logger.Info("Assigned repair", "repairID", repairID, "mechanicID", mechanicID, "app", "mechanic-service")
 	span.SetAttributes(
 		attribute.String("repairID", repairID),
 		attribute.String("mechanicID", mechanicID),

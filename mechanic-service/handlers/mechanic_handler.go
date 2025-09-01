@@ -17,13 +17,15 @@ import (
 type MechanicHandler struct {
 	service *service.Service
 	tracer  trace.Tracer
+	logger  *slog.Logger
 }
 
 // NewMechanicHandler creates a new MechanicHandler
-func NewMechanicHandler(service *service.Service) *MechanicHandler {
+func NewMechanicHandler(service *service.Service, logger *slog.Logger) *MechanicHandler {
 	return &MechanicHandler{
 		service: service,
 		tracer:  otel.Tracer("mechanic-service"),
+		logger:  logger,
 	}
 }
 
@@ -32,7 +34,7 @@ func (h *MechanicHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	_, span := h.tracer.Start(r.Context(), "HealthCheck")
 	defer span.End()
 
-	slog.Info("Health check requested", "app", "mechanic-service")
+	h.logger.Info("Health check requested", "app", "mechanic-service")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -42,11 +44,11 @@ func (h *MechanicHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Reque
 	ctx, span := h.tracer.Start(r.Context(), "ListNearbyRepairs")
 	defer span.End()
 
-	slog.Info("Received GET /repairs/nearby request", "app", "mechanic-service")
+	h.logger.Info("Received GET /repairs/nearby request", "app", "mechanic-service")
 	mechanicID := r.URL.Query().Get("mechanicID")
 	if mechanicID == "" {
 		span.SetStatus(codes.Error, "Mechanic ID is required")
-		slog.Error("Mechanic ID is required", "app", "mechanic-service")
+		h.logger.Error("Mechanic ID is required", "app", "mechanic-service")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Mechanic ID is required"})
@@ -57,7 +59,7 @@ func (h *MechanicHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		slog.Error("Failed to list nearby repairs", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
+		h.logger.Error("Failed to list nearby repairs", "error", err, "mechanicID", mechanicID, "app", "mechanic-service")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -68,7 +70,7 @@ func (h *MechanicHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Reque
 		attribute.Int("nearbyRepairCount", len(nearby)),
 	)
 
-	slog.Info("Successfully sent response for GET /repairs/nearby", "repairCount", len(nearby), "app", "mechanic-service")
+	h.logger.Info("Successfully sent response for GET /repairs/nearby", "repairCount", len(nearby), "app", "mechanic-service")
 	w.Header().Set("Content-Type", "application/json")
 	if len(nearby) == 0 {
 		w.Write([]byte("[]"))
@@ -82,7 +84,7 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "AssignRepair")
 	defer span.End()
 
-	slog.Info("Received POST /repairs/{repairID}/assign request", "app", "mechanic-service")
+	h.logger.Info("Received POST /repairs/{repairID}/assign request", "app", "mechanic-service")
 	vars := mux.Vars(r)
 	repairID := vars["repairID"]
 
@@ -92,7 +94,7 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Invalid request body")
-		slog.Error("Failed to decode request body", "error", err, "repairID", repairID, "app", "mechanic-service")
+		h.logger.Error("Failed to decode request body", "error", err, "repairID", repairID, "app", "mechanic-service")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body: " + err.Error()})
@@ -103,7 +105,7 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		slog.Error("Failed to assign repair", "error", err, "repairID", repairID, "mechanicID", input.MechanicID, "app", "mechanic-service")
+		h.logger.Error("Failed to assign repair", "error", err, "repairID", repairID, "mechanicID", input.MechanicID, "app", "mechanic-service")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -115,7 +117,7 @@ func (h *MechanicHandler) AssignRepair(w http.ResponseWriter, r *http.Request) {
 		attribute.String("mechanicID", input.MechanicID),
 	)
 
-	slog.Info("Successfully assigned repair", "repairID", repairID, "mechanicID", input.MechanicID, "app", "mechanic-service")
+	h.logger.Info("Successfully assigned repair", "repairID", repairID, "mechanicID", input.MechanicID, "app", "mechanic-service")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(repair)
