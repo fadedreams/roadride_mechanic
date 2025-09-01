@@ -203,6 +203,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&cost); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Invalid request body")
+		h.logger.Error("Invalid request body", "error", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -215,6 +216,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to marshal request")
+		h.logger.Error("Failed to marshal request", "error", err)
 		http.Error(w, "Failed to marshal request", http.StatusInternalServerError)
 		return
 	}
@@ -223,6 +225,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -233,6 +236,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact repair service")
+		h.logger.Error("Failed to contact repair service", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to contact repair service", http.StatusInternalServerError)
 		return
 	}
@@ -276,6 +280,7 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Invalid request body")
+		h.logger.Error("Invalid request body", "error", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -288,6 +293,7 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to marshal request")
+		h.logger.Error("Failed to marshal request", "error", err)
 		http.Error(w, "Failed to marshal request", http.StatusInternalServerError)
 		return
 	}
@@ -296,6 +302,7 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -306,6 +313,7 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact repair service")
+		h.logger.Error("Failed to contact repair service", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to contact repair service", http.StatusInternalServerError)
 		return
 	}
@@ -353,6 +361,7 @@ func (h *RepairHandler) GetRepairCost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -362,6 +371,7 @@ func (h *RepairHandler) GetRepairCost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact repair service")
+		h.logger.Error("Failed to contact repair service", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to contact repair service", http.StatusInternalServerError)
 		return
 	}
@@ -371,6 +381,7 @@ func (h *RepairHandler) GetRepairCost(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(resp.Body).Decode(&cost); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to decode response")
+		h.logger.Error("Failed to decode response", "error", err)
 		http.Error(w, "Failed to decode response", http.StatusInternalServerError)
 		return
 	}
@@ -393,6 +404,7 @@ func (h *RepairHandler) GetRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -402,6 +414,7 @@ func (h *RepairHandler) GetRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact repair service")
+		h.logger.Error("Failed to contact repair service", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to contact repair service", http.StatusInternalServerError)
 		return
 	}
@@ -411,6 +424,7 @@ func (h *RepairHandler) GetRepair(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(resp.Body).Decode(&repair); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to decode response")
+		h.logger.Error("Failed to decode response", "error", err)
 		http.Error(w, "Failed to decode response", http.StatusInternalServerError)
 		return
 	}
@@ -435,6 +449,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Invalid request body")
+		h.logger.Error("Invalid request body", "error", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -444,6 +459,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to marshal request")
+		h.logger.Error("Failed to marshal request", "error", err)
 		http.Error(w, "Failed to marshal request", http.StatusInternalServerError)
 		return
 	}
@@ -452,6 +468,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -462,6 +479,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact repair service")
+		h.logger.Error("Failed to contact repair service", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to contact repair service", http.StatusInternalServerError)
 		return
 	}
@@ -490,7 +508,7 @@ func (h *RepairHandler) UpdateRepair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to fetch repair for broadcasting")
-		h.logger.Error("Failed to fetch repair for broadcasting", "error", err)
+		h.logger.Error("Failed to fetch repair for broadcasting", "error", err, "url", h.repairServiceURL)
 		http.Error(w, "Failed to fetch repair for broadcasting", http.StatusInternalServerError)
 		return
 	}
@@ -540,7 +558,7 @@ func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to create request")
-		h.logger.Error("Error creating request", "error", err)
+		h.logger.Error("Failed to create request", "error", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -552,7 +570,7 @@ func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to contact mechanic service")
-		h.logger.Error("Error contacting mechanic-service", "error", err)
+		h.logger.Error("Failed to contact mechanic service", "error", err, "url", h.mechanicServiceURL)
 		http.Error(w, "Failed to contact mechanic service", http.StatusInternalServerError)
 		return
 	}
@@ -572,9 +590,8 @@ func (h *RepairHandler) ListNearbyRepairs(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to read response body")
-		h.logger.Error("Error reading response body", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode([]RepairModel{}) // Return empty array
+		h.logger.Error("Failed to read response body", "error", err)
+		http.Error(w, "Failed to read response", http.StatusInternalServerError)
 		return
 	}
 	h.logger.Info("Mechanic service response", "response", string(bodyBytes))
@@ -627,6 +644,7 @@ func (h *RepairHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) 
 	if userID == "" {
 		span.RecordError(fmt.Errorf("userID is required"))
 		span.SetStatus(codes.Error, "userID is required")
+		h.logger.Error("userID is required")
 		http.Error(w, "userID is required", http.StatusBadRequest)
 		return
 	}
