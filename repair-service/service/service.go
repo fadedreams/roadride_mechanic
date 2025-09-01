@@ -163,7 +163,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to call OSRM table service")
-		s.logger.Error("Failed to call OSRM table service", "error", err)
+		s.logger.Error("Failed to call OSRM table service", "error", err, "url", osrmURL)
 		return nil, fmt.Errorf("failed to call OSRM table service: %v", err)
 	}
 	defer resp.Body.Close()
@@ -172,7 +172,7 @@ func (s *service) EstimateRepairCost(ctx context.Context, repairType string, use
 		err := fmt.Errorf("OSRM table service returned status %d", resp.StatusCode)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("OSRM table service error", "status_code", resp.StatusCode)
+		s.logger.Error("OSRM table service error", "status_code", resp.StatusCode, "url", osrmURL)
 		return nil, err
 	}
 
