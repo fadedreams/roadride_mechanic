@@ -21,6 +21,45 @@ import (
 	"time"
 )
 
+// multiHandler is a custom slog.Handler that combines multiple handlers
+type multiHandler []slog.Handler
+
+func (h multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, handler := range h {
+		if handler.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, handler := range h {
+		if handler.Enabled(ctx, r.Level) {
+			if err := handler.Handle(ctx, r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	handlers := make([]slog.Handler, len(h))
+	for i, handler := range h {
+		handlers[i] = handler.WithAttrs(attrs)
+	}
+	return multiHandler(handlers)
+}
+
+func (h multiHandler) WithGroup(name string) slog.Handler {
+	handlers := make([]slog.Handler, len(h))
+	for i, handler := range h {
+		handlers[i] = handler.WithGroup(name)
+	}
+	return multiHandler(handlers)
+}
+
 // RepairCostModel mirrors repair-service's domain.RepairCostModel
 type RepairCostModel struct {
 	ID           string         `json:"id"`
@@ -76,8 +115,25 @@ type RepairHandler struct {
 
 // NewRepairHandler creates a new RepairHandler with Consul integration
 func NewRepairHandler() *RepairHandler {
-	// Initialize slog logger
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Initialize structured logging for both file and terminal
+	logFile, err := os.OpenFile("/var/log/api-gateway/api-gateway.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file", "error", err)
+		os.Exit(1)
+	}
+
+	// Create handlers for both file and terminal output
+	fileHandler := slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	})
+	terminalHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	})
+
+	// Combine handlers using custom multiHandler
+	logger := slog.New(multiHandler{fileHandler, terminalHandler})
 
 	// Initialize Consul client
 	consulAddr := os.Getenv("CONSUL_ADDRESS")
@@ -156,7 +212,7 @@ func NewRepairHandler() *RepairHandler {
 
 	tracer := otel.Tracer("api-gateway")
 
-	// Create HTTP client	 with OpenTelemetry instrumentation
+	// Create HTTP client with OpenTelemetry instrumentation
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{},
