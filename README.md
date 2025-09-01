@@ -1,7 +1,7 @@
 ```
 ```
 api-gateway 8081
-repair-service 8080
+repair-service 8083
 
 # POST /repairs
 curl -v -X POST http://localhost:8081/repairs -H "Content-Type: application/json" -d '{"userID":"test-user2","repairType":"flat_tire","totalPrice":50.0,"userLocation":{"longitude":13.400000,"latitude":52.520000}}'

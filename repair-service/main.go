@@ -167,13 +167,13 @@ func main() {
 	}
 	servicePort := os.Getenv("SERVICE_PORT")
 	if servicePort == "" {
-		servicePort = "8080"
+		servicePort = "8083"
 	}
 	serviceID := serviceName + "-" + servicePort
 	registration := &api.AgentServiceRegistration{
 		ID:      serviceID,
 		Name:    serviceName,
-		Port:    8080,
+		Port:    8083,
 		Address: "repair-service",
 		Check: &api.AgentServiceCheck{
 			HTTP:     fmt.Sprintf("http://repair-service:%s/health", servicePort),
@@ -353,7 +353,7 @@ func main() {
 	// Start server
 	port := os.Getenv("SERVICE_PORT")
 	if port == "" {
-		port = "8080"
+		port = "8083"
 	}
 	logger.Info("Starting repair-service", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

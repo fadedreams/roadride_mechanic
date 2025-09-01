@@ -29,6 +29,8 @@ services:
       context: ./mechanic-service
       dockerfile: Dockerfile
     container_name: mechanic-service
+    ports:
+      - "8082:8082"
     volumes:
       - mechanic-service-logs:/var/log/mechanic-service
     networks:
@@ -51,6 +53,8 @@ services:
       context: ./repair-service
       dockerfile: Dockerfile
     container_name: repair-service
+    ports:
+      - "8083:8083"
     volumes:
       - repair-service-logs:/var/log/repair-service
     networks:
