@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"repair-service/domain"
+	"repair-service/kafka"
 	"sort"
 	"strings"
 	"time"
+
+	"log/slog"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.opentelemetry.io/otel"
@@ -17,7 +20,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-	"log/slog"
 )
 
 // service implements the RepairService interface
@@ -26,15 +28,24 @@ type service struct {
 	httpClient *http.Client
 	tracer     trace.Tracer
 	logger     *slog.Logger
+	kafkaProducer *kafka.Producer
 }
 
 // NewService creates a new instance of the repair service
 func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
+	// Initialize Kafka producer
+	kafkaProducer, err := kafka.NewProducer("broker:9093", "http://schema-registry:8081", "repair-events", logger)
+	if err != nil {
+		logger.Error("Failed to initialize Kafka producer", "error", err)
+		panic(fmt.Sprintf("failed to initialize Kafka producer: %v", err))
+	}
+
 	return &service{
-		repo:       repo,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		tracer:     otel.Tracer("repair-service"),
-		logger:     logger,
+		repo:          repo,
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		tracer:        otel.Tracer("repair-service"),
+		logger:        logger,
+		kafkaProducer: kafkaProducer,
 	}
 }
 
@@ -85,6 +96,15 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 		return nil, err
 	}
 	s.logger.Info("Created repair", "repairID", repair.ID)
+
+	// Publish Kafka event
+	err = s.kafkaProducer.PublishRepairEvent(ctx, createdRepair)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to publish repair event")
+		s.logger.Error("Failed to publish repair event", "error", err)
+		// Log the error but don't fail the operation, as the repair is already created
+	}
 
 	return createdRepair, nil
 }
@@ -364,6 +384,25 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		return err
 	}
 	s.logger.Info("Updated repair", "repairID", repairID, "status", status)
+
+	// Retrieve the updated repair to publish the event
+	repair, err := s.repo.GetRepairByID(ctx, repairID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to get updated repair for event")
+		s.logger.Error("Failed to get updated repair for event", "error", err)
+		// Log the error but don't fail the operation
+		return nil
+	}
+
+	// Publish Kafka event
+	err = s.kafkaProducer.PublishRepairEvent(ctx, repair)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to publish repair event")
+		s.logger.Error("Failed to publish repair event", "error", err)
+		// Log the error but don't fail the operation
+	}
 
 	return nil
 }

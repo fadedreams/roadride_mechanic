@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   api-gateway:
     build:
@@ -207,12 +209,21 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   broker:
     image: confluentinc/cp-kafka:7.5.3
     container_name: broker
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
       - "9093:9093"
@@ -220,7 +231,7 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,INTERNAL://broker:29092,EXTERNAL://${HOST_IP:-127.0.0.1}:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,INTERNAL://broker:29092,EXTERNAL://${HOST_IP}:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -228,33 +239,59 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:29092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.5.3
     container_name: schema-registry
     depends_on:
-      - broker
-      - zookeeper
+      broker:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
     ports:
-      - "8081:8081"
+      - "8070:8070"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "broker:29092"
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: "PLAINTEXT"
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8070
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:0.7.2
     container_name: kafka-ui
     depends_on:
-      - broker
+      broker:
+        condition: service_healthy
     ports:
-      - "8079:8079"
+      - "8071:8071"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8070
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8071/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 networks:
   app-network:
