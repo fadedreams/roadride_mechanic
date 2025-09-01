@@ -18,21 +18,30 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"log/slog"
+	"repair-service/kafka"
 )
 
 // service implements the RepairService interface
 type service struct {
 	repo       domain.RepairRepository
 	httpClient *http.Client
+	producer   *kafka.Producer
 	tracer     trace.Tracer
 	logger     *slog.Logger
 }
 
 // NewService creates a new instance of the repair service
 func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
+	producer, err := kafka.NewProducer(logger)
+	if err != nil {
+		logger.Error("Failed to initialize Kafka producer", "error", err)
+		// Decide whether to exit or continue without Kafka
+		// For now, log and continue
+	}
 	return &service{
 		repo:       repo,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		producer:   producer,
 		tracer:     otel.Tracer("repair-service"),
 		logger:     logger,
 	}
@@ -43,7 +52,6 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	_, span := s.tracer.Start(ctx, "ServiceCreateRepair")
 	defer span.End()
 
-	// Validate input
 	if cost == nil || cost.UserID == "" || cost.RepairType == "" || cost.TotalPrice <= 0 {
 		err := errors.New("invalid repair cost data")
 		span.RecordError(err)
@@ -57,7 +65,6 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 		attribute.Float64("totalPrice", cost.TotalPrice),
 	)
 
-	// Save the repair cost
 	err := s.repo.SaveRepairCost(ctx, cost)
 	if err != nil {
 		span.RecordError(err)
@@ -67,7 +74,6 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	}
 	s.logger.Info("Saved repair cost", "costID", cost.ID)
 
-	// Create a new repair with a unique ID
 	repair := &domain.RepairModel{
 		ID:         primitive.NewObjectID().Hex(),
 		UserID:     cost.UserID,
@@ -76,7 +82,6 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	}
 	span.SetAttributes(attribute.String("repairID", repair.ID))
 
-	// Save the repair
 	createdRepair, err := s.repo.CreateRepair(ctx, repair)
 	if err != nil {
 		span.RecordError(err)
@@ -85,6 +90,14 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 		return nil, err
 	}
 	s.logger.Info("Created repair", "repairID", repair.ID)
+
+	// Publish to Kafka
+	if s.producer != nil {
+		if err := s.producer.PublishRepair(ctx, createdRepair); err != nil {
+			s.logger.Error("Failed to publish repair to Kafka", "error", err)
+			// Log error but don't fail the request
+		}
+	}
 
 	return createdRepair, nil
 }
@@ -327,7 +340,6 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 	_, span := s.tracer.Start(ctx, "ServiceUpdateRepair")
 	defer span.End()
 
-	// Validate input
 	if repairID == "" || status == "" {
 		err := errors.New("repair ID and status are required")
 		span.RecordError(err)
@@ -340,7 +352,6 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		attribute.String("status", status),
 	)
 
-	// Validate status
 	validStatuses := map[string]bool{
 		"pending":     true,
 		"in_progress": true,
@@ -355,7 +366,6 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		return err
 	}
 
-	// Update the repair
 	err := s.repo.UpdateRepair(ctx, repairID, status)
 	if err != nil {
 		span.RecordError(err)
@@ -364,6 +374,21 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		return err
 	}
 	s.logger.Info("Updated repair", "repairID", repairID, "status", status)
+
+	// Fetch updated repair to publish
+	repair, err := s.repo.GetRepairByID(ctx, repairID)
+	if err != nil {
+		s.logger.Error("Failed to fetch repair for Kafka publishing", "error", err)
+		return nil // Don't fail the update due to Kafka issue
+	}
+
+	// Publish to Kafka
+	if s.producer != nil {
+		if err := s.producer.PublishRepair(ctx, repair); err != nil {
+			s.logger.Error("Failed to publish repair update to Kafka", "error", err)
+			// Log error but don't fail the request
+		}
+	}
 
 	return nil
 }

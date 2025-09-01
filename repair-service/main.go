@@ -191,6 +191,11 @@ func main() {
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
 	svc := service.NewService(repo, logger)
+	defer func() {
+		if svc.producer != nil {
+			svc.producer.Close()
+		}
+	}()
 
 	// Initialize router
 	r := mux.NewRouter()
