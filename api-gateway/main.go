@@ -2,6 +2,7 @@ package main
 
 import (
 	"api-gateway/handlers"
+	"api-gateway/logging"
 	"context"
 	"fmt"
 	"log/slog"
@@ -20,66 +21,14 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-// multiHandler is a custom slog.Handler that combines multiple handlers
-type multiHandler []slog.Handler
-
-func (h multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	for _, handler := range h {
-		if handler.Enabled(ctx, level) {
-			return true
-		}
-	}
-	return false
-}
-
-func (h multiHandler) Handle(ctx context.Context, r slog.Record) error {
-	for _, handler := range h {
-		if handler.Enabled(ctx, r.Level) {
-			if err := handler.Handle(ctx, r); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (h multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	handlers := make([]slog.Handler, len(h))
-	for i, handler := range h {
-		handlers[i] = handler.WithAttrs(attrs)
-	}
-	return multiHandler(handlers)
-}
-
-func (h multiHandler) WithGroup(name string) slog.Handler {
-	handlers := make([]slog.Handler, len(h))
-	for i, handler := range h {
-		handlers[i] = handler.WithGroup(name)
-	}
-	return multiHandler(handlers)
-}
-
 func main() {
-	// Initialize structured logging for both file and terminal
-	logFile, err := os.OpenFile("/var/log/api-gateway/api-gateway.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Initialize structured logging
+	logger, logFile, err := logging.NewLogger()
 	if err != nil {
-		slog.Error("Failed to open log file", "error", err)
+		slog.Error("Failed to initialize logger", "error", err)
 		os.Exit(1)
 	}
 	defer logFile.Close()
-
-	// Create handlers for both file and terminal output
-	fileHandler := slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-		AddSource: true,
-		Level:     slog.LevelInfo,
-	})
-	terminalHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		AddSource: true,
-		Level:     slog.LevelInfo,
-	})
-
-	// Combine handlers using custom multiHandler
-	logger := slog.New(multiHandler{fileHandler, terminalHandler})
 	slog.SetDefault(logger)
 
 	// Log startup
