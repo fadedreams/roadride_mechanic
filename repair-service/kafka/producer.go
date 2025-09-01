@@ -56,7 +56,7 @@ func NewProducer(logger *slog.Logger) (*Producer, error) {
 	}
 
 	return &Producer{
-		producer:       p,
+		Producer:       p,
 		schemaRegistry: client,
 		schema:         schema,
 		schemaID:       schemaObj.ID(),
@@ -66,7 +66,7 @@ func NewProducer(logger *slog.Logger) (*Producer, error) {
 }
 
 func (p *Producer) Close() {
-	p.producer.Close()
+	p.Producer.Close()
 }
 
 func (p *Producer) PublishRepair(ctx context.Context, repair *domain.RepairModel) error {
@@ -94,7 +94,7 @@ func (p *Producer) PublishRepair(ctx context.Context, repair *domain.RepairModel
 	defer close(deliveryChan)
 
 	// Produce message
-	err = p.producer.Produce(&kafka.Message{
+	err = p.Producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          encodedPayload,
 	}, deliveryChan)
