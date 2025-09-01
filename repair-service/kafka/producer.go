@@ -12,6 +12,7 @@ import (
 	"github.com/riferrei/srclient"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"log/slog"
 )
 
@@ -21,7 +22,7 @@ type Producer struct {
 	schema         avro.Schema
 	schemaID       int
 	logger         *slog.Logger
-	tracer         otel.Tracer
+	tracer     trace.Tracer
 }
 
 func NewProducer(logger *slog.Logger) (*Producer, error) {
