@@ -34,7 +34,7 @@ type service struct {
 // NewService creates a new instance of the repair service
 func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
 	// Initialize Kafka producer
-	kafkaProducer, err := kafka.NewProducer("broker:9093", "http://schema-registry:8085", "repair-events", logger)
+	kafkaProducer, err := kafka.NewProducer("kafka:9092", "http://schema-registry:8081", "repair-events", logger)
 	if err != nil {
 		logger.Error("Failed to initialize Kafka producer", "error", err)
 		panic(fmt.Sprintf("failed to initialize Kafka producer: %v", err))
