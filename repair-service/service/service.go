@@ -15,6 +15,7 @@ import (
 
 	"log/slog"
 
+	"github.com/hashicorp/consul/api"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -25,24 +26,65 @@ import (
 
 // service implements the RepairService interface
 type service struct {
-	repo       domain.RepairRepository
-	httpClient *http.Client
-	tracer     trace.Tracer
-	logger     *slog.Logger
+	repo          domain.RepairRepository
+	httpClient    *http.Client
+	tracer        trace.Tracer
+	logger        *slog.Logger
 	kafkaProducer *kafka.Producer
 }
 
 // NewService creates a new instance of the repair service
 func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
-	bootstrapServers := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
-	if bootstrapServers == "" {
-		bootstrapServers = "kafka:9094"
+	_, span := otel.Tracer("repair-service").Start(context.Background(), "InitializeService")
+	defer span.End()
+
+	// Initialize Consul client
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
 	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to create Consul client")
+		logger.Error("Failed to create Consul client", "error", err)
+		panic(fmt.Sprintf("failed to create Consul client: %v", err))
+	}
+
+	// Query Consul for Kafka service
+	serviceName := "kafka"
+	services, _, err := consulClient.Agent().Service(serviceName+"-9094", nil)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to query Consul for Kafka service")
+		logger.Error("Failed to query Consul for Kafka service", "error", err)
+		panic(fmt.Sprintf("failed to query Consul for Kafka service: %v", err))
+	}
+	if services == nil {
+		err := errors.New("Kafka service not found in Consul")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		logger.Error("Kafka service not found in Consul", "serviceName", serviceName)
+		panic("Kafka service not found in Consul")
+	}
+	bootstrapServers := fmt.Sprintf("%s:%d", services.Address, services.Port)
+	span.SetAttributes(
+		attribute.String("kafkaServiceName", serviceName),
+		attribute.String("bootstrapServers", bootstrapServers),
+	)
+	logger.Info("Resolved Kafka service from Consul", "bootstrapServers", bootstrapServers)
+
+	// Initialize Kafka producer with resolved bootstrap servers
 	kafkaProducer, err := kafka.NewProducer(bootstrapServers, "http://schema-registry:8081", "repair-events", logger)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to initialize Kafka producer")
 		logger.Error("Failed to initialize Kafka producer", "error", err)
 		panic(fmt.Sprintf("failed to initialize Kafka producer: %v", err))
 	}
+
 	return &service{
 		repo:          repo,
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
