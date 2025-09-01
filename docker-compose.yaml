@@ -73,6 +73,7 @@ services:
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=repair-service
       - SERVICE_PORT=8087
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9094
 
   mongodb:
     image: mongo:7.0.14
