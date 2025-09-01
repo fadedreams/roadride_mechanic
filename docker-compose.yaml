@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: api-gateway
     ports:
-      - "8081:8081"
+      - "8085:8085"
     volumes:
       - api-gateway-logs:/var/log/api-gateway
     networks:
@@ -24,7 +24,7 @@ services:
       - CONSUL_ADDRESS=consul:8500
       - JAEGER_ENDPOINT=http://jaeger:4318/v1/traces
       - SERVICE_NAME=api-gateway
-      - SERVICE_PORT=8081
+      - SERVICE_PORT=8085
 
   mechanic-service:
     build:
@@ -32,7 +32,7 @@ services:
       dockerfile: Dockerfile
     container_name: mechanic-service
     ports:
-      - "8082:8082"
+      - "8086:8086"
     volumes:
       - mechanic-service-logs:/var/log/mechanic-service
     networks:
@@ -48,7 +48,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=mechanic-service
-      - SERVICE_PORT=8082
+      - SERVICE_PORT=8086
 
   repair-service:
     build:
@@ -56,7 +56,7 @@ services:
       dockerfile: Dockerfile
     container_name: repair-service
     ports:
-      - "8083:8083"
+      - "8087:8087"
     volumes:
       - repair-service-logs:/var/log/repair-service
     networks:
@@ -72,7 +72,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=repair-service
-      - SERVICE_PORT=8083
+      - SERVICE_PORT=8087
 
   mongodb:
     image: mongo:7.0.14
@@ -180,6 +180,71 @@ services:
       retries: 10
       start_period: 30s
 
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # — KRaft single-node basics —
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_KRAFT_CLUSTER_ID: "XqZrTh1yT8qXwjsn1a6L9A"
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # — Listeners —
+      KAFKA_CFG_LISTENERS: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - app-network
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: schema-registry
+    depends_on:
+      - kafka
+    ports:
+      - "8070:8070"  # Changed
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8070"
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka:9094"
+    volumes:
+      - schema-registry-logs:/var/log/schema-registry
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "8071:8071"  # Changed
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "dev"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8070"
+      AUTH_TYPE: "DISABLED"
+    volumes:
+      - kafka-ui-logs:/logs
+    networks:
+      - app-network
+
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.7.1
     container_name: filebeat
@@ -188,6 +253,9 @@ services:
       - api-gateway-logs:/var/log/api-gateway:ro
       - mechanic-service-logs:/var/log/mechanic-service:ro
       - repair-service-logs:/var/log/repair-service:ro
+      - kafka-data:/bitnami/kafka:ro  # Kafka logs
+      - schema-registry-logs:/var/log/schema-registry:ro
+      - kafka-ui-logs:/logs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - app-network
@@ -201,98 +269,6 @@ services:
       retries: 10
       start_period: 30s
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.3
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  broker:
-    image: confluentinc/cp-kafka:7.5.3
-    container_name: broker
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-      - "9101:9101"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,INTERNAL://broker:29092,EXTERNAL://${HOST_IP}:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: localhost
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:29092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.5.3
-    container_name: schema-registry
-    depends_on:
-      broker:
-        condition: service_healthy
-      zookeeper:
-        condition: service_healthy
-    ports:
-      - "8070:8070"
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "broker:29092"
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8070
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8070/subjects"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:0.7.2
-    container_name: kafka-ui
-    depends_on:
-      broker:
-        condition: service_healthy
-    ports:
-      - "8071:8071"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8070
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8071/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
 networks:
   app-network:
     driver: bridge
@@ -303,3 +279,6 @@ volumes:
   mechanic-service-logs:
   repair-service-logs:
   mongodb-data:
+  kafka-data:
+  schema-registry-logs:
+  kafka-ui-logs:

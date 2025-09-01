@@ -12,6 +12,6 @@ RUN go build -o mechanic-service .
 # Create log directory
 RUN mkdir -p /var/log/mechanic-service
 
-EXPOSE 8082
+EXPOSE 8086
 
 CMD ["./mechanic-service"]

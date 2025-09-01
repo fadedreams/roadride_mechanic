@@ -12,6 +12,6 @@ RUN go build -o api-gateway .
 # Create log directory
 RUN mkdir -p /var/log/api-gateway
 
-EXPOSE 8081
+EXPOSE 8085
 
 CMD ["./api-gateway"]

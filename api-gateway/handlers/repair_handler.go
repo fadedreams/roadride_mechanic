@@ -104,16 +104,16 @@ func NewRepairHandler() *RepairHandler {
 	}
 	servicePort := os.Getenv("SERVICE_PORT")
 	if servicePort == "" {
-		servicePort = "8081"
+		servicePort = "8085"
 	}
 	serviceID := serviceName + "-" + servicePort
 	registration := &api.AgentServiceRegistration{
 		ID:      serviceID,
 		Name:    serviceName,
-		Port:    8081,
+		Port:    8085,
 		Address: "api-gateway",
 		Check: &api.AgentServiceCheck{
-			HTTP:     "http://api-gateway:8081/health",
+			HTTP:     "http://api-gateway:8085/health",
 			Interval: "10s",
 			Timeout:  "5s",
 		},

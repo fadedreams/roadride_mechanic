@@ -12,6 +12,6 @@ RUN go build -o repair-service .
 # Create log directory
 RUN mkdir -p /var/log/repair-service
 
-EXPOSE 8083 50051
+EXPOSE 8087 50051
 
 CMD ["./repair-service"]

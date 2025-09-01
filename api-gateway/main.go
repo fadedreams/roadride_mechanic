@@ -62,8 +62,8 @@ func main() {
 	r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
 
 	// Start server
-	slog.Info("API Gateway running on port 8081")
-	if err := http.ListenAndServe(":8081", r); err != nil {
+	slog.Info("API Gateway running on port 8085")
+	if err := http.ListenAndServe(":8085", r); err != nil {
 		slog.Error("Failed to start server", "error", err)
 		os.Exit(1)
 	}

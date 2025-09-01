@@ -128,13 +128,13 @@ func main() {
 	}
 	servicePort := os.Getenv("SERVICE_PORT")
 	if servicePort == "" {
-		servicePort = "8082"
+		servicePort = "8086"
 	}
 	serviceID := serviceName + "-" + servicePort
 	registration := &api.AgentServiceRegistration{
 		ID:      serviceID,
 		Name:    serviceName,
-		Port:    8082,
+		Port:    8086,
 		Address: "mechanic-service",
 		Check: &api.AgentServiceCheck{
 			HTTP:     fmt.Sprintf("http://mechanic-service:%s/health", servicePort),
