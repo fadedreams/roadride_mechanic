@@ -48,7 +48,7 @@ func (h multiHandler) WithGroup(name string) slog.Handler {
 
 // NewLogger creates a new slog.Logger that writes to both a file and stdout
 func NewLogger() (*slog.Logger, *os.File, error) {
-	logFile, err := os.OpenFile("/var/log/api-gateway/api-gateway.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile("/var/log/repair-service/api-gateway.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, nil, err
 	}
