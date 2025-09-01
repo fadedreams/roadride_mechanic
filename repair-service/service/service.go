@@ -54,62 +54,63 @@ func NewService(repo domain.RepairRepository, logger *slog.Logger) *service {
 
 // CreateRepair creates a new repair request with the provided cost
 func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel) (*domain.RepairModel, error) {
-	_, span := s.tracer.Start(ctx, "ServiceCreateRepair")
-	defer span.End()
+    _, span := s.tracer.Start(ctx, "ServiceCreateRepair")
+    defer span.End()
 
-	// Validate input
-	if cost == nil || cost.UserID == "" || cost.RepairType == "" || cost.TotalPrice <= 0 {
-		err := errors.New("invalid repair cost data")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Invalid repair cost data", "error", err)
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("userID", cost.UserID),
-		attribute.String("repairType", cost.RepairType),
-		attribute.Float64("totalPrice", cost.TotalPrice),
-	)
+    if cost == nil || cost.UserID == "" || cost.RepairType == "" || cost.TotalPrice <= 0 {
+        err := errors.New("invalid repair cost data")
+        span.RecordError(err)
+        span.SetStatus(codes.Error, err.Error())
+        s.logger.Error("Invalid repair cost data", "error", err)
+        return nil, err
+    }
+    span.SetAttributes(
+        attribute.String("userID", cost.UserID),
+        attribute.String("repairType", cost.RepairType),
+        attribute.Float64("totalPrice", cost.TotalPrice),
+    )
 
-	// Save the repair cost
-	err := s.repo.SaveRepairCost(ctx, cost)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to save repair cost")
-		s.logger.Error("Failed to save repair cost", "error", err)
-		return nil, err
-	}
-	s.logger.Info("Saved repair cost", "costID", cost.ID)
+    err := s.repo.SaveRepairCost(ctx, cost)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to save repair cost")
+        s.logger.Error("Failed to save repair cost", "error", err)
+        return nil, err
+    }
+    s.logger.Info("Saved repair cost", "costID", cost.ID)
 
-	// Create a new repair with a unique ID
-	repair := &domain.RepairModel{
-		ID:         primitive.NewObjectID().Hex(),
-		UserID:     cost.UserID,
-		Status:     "pending",
-		RepairCost: cost,
-	}
-	span.SetAttributes(attribute.String("repairID", repair.ID))
+    repair := &domain.RepairModel{
+        ID:         primitive.NewObjectID().Hex(),
+        UserID:     cost.UserID,
+        Status:     "pending",
+        RepairCost: cost,
+    }
+    span.SetAttributes(attribute.String("repairID", repair.ID))
 
-	// Save the repair
-	createdRepair, err := s.repo.CreateRepair(ctx, repair)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create repair")
-		s.logger.Error("Failed to create repair", "error", err)
-		return nil, err
-	}
-	s.logger.Info("Created repair", "repairID", repair.ID)
+    createdRepair, err := s.repo.CreateRepair(ctx, repair)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "Failed to create repair")
+        s.logger.Error("Failed to create repair", "error", err)
+        return nil, err
+    }
+    s.logger.Info("Created repair", "repairID", repair.ID)
 
-	// Publish Kafka event
-	err = s.kafkaProducer.PublishRepairEvent(ctx, createdRepair)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to publish repair event")
-		s.logger.Error("Failed to publish repair event", "error", err)
-		// Log the error but don't fail the operation, as the repair is already created
-	}
+    // Publish Kafka event asynchronously
+    go func() {
+        ctx, span := s.tracer.Start(ctx, "AsyncPublishRepairEvent")
+        defer span.End()
+        err := s.kafkaProducer.PublishRepairEvent(ctx, createdRepair)
+        if err != nil {
+            span.RecordError(err)
+            span.SetStatus(codes.Error, "Failed to publish repair event")
+            s.logger.Error("Failed to publish repair event", "error", err)
+        } else {
+            s.logger.Info("Published repair event", "repairID", createdRepair.ID)
+        }
+    }()
 
-	return createdRepair, nil
+    return createdRepair, nil
 }
 
 // EstimateRepairCost generates an estimated cost and mechanic distances
