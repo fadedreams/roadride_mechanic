@@ -208,7 +208,7 @@ func (r *MongoRepository) WatchRepairs(ctx context.Context) (*mongo.ChangeStream
 	defer span.End()
 
 	pipeline := mongo.Pipeline{
-		bson.D{{"$match", bson.D{{"operationType", "insert"}}}},
+		bson.D{{Key: "$match", Value: bson.D{{Key: "operationType", Value: "insert"}}}},
 	}
 	changeStream, err := r.RepairCollection.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
 	if err != nil {
