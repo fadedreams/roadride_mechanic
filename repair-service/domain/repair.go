@@ -69,6 +69,7 @@ type RepairRepository interface {
 	SaveOutboxEvent(ctx context.Context, session mongo.SessionContext, event *OutboxEvent) error
 	GetUnprocessedOutboxEvents(ctx context.Context) ([]*OutboxEvent, error)
 	MarkOutboxEventProcessed(ctx context.Context, eventID string) error
+	GetMongoClient(ctx context.Context) *mongo.Client
 }
 
 // RepairService defines the business logic methods for repairs

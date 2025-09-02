@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-
 // MongoRepository implements the RepairRepository interface
 type MongoRepository struct {
 	RepairCollection   *mongo.Collection
@@ -30,6 +29,13 @@ func NewMongoRepository(client *mongo.Client) *MongoRepository {
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
 		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
 	}
+}
+
+// GetMongoClient returns the MongoDB client for starting sessions
+func (r *MongoRepository) GetMongoClient(ctx context.Context) *mongo.Client {
+	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetMongoClient")
+	defer span.End()
+	return r.RepairCollection.Database().Client()
 }
 
 // CreateRepair inserts a new repair

@@ -191,7 +191,7 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	copy(encodedPayload[5:], payload)
 
 	// Save repair cost, repair, and outbox event in a transaction
-	session, err := s.repo.(*domain.MongoRepository).RepairCollection.Database().Client().StartSession()
+	session, err := s.repo.GetMongoClient(ctx).StartSession()
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to start MongoDB session")
@@ -528,7 +528,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 	}
 
 	// Update repair status and save outbox event in a transaction
-	session, err := s.repo.(*domain.MongoRepository).RepairCollection.Database().Client().StartSession()
+	session, err := s.repo.GetMongoClient(ctx).StartSession()
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to start MongoDB session")
