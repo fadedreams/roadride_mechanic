@@ -159,7 +159,13 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 				return fmt.Errorf("failed to check existing repair: %w", err)
 			}
 			if exists {
-				p.logger.Info("Repair already exists, skipping", "repairID", repair.ID, "app", "mechanic-service")
+				p.logger.Info("Repair already exists, skipping insert", "repairID", repair.ID, "app", "mechanic-service")
+				// Mark the outbox event as processed even if repair exists
+				if err := p.repo.MarkOutboxEventProcessed(ctx, event.ID); err != nil {
+					p.logger.Error("Failed to mark outbox event as processed", "eventID", event.ID, "error", err, "app", "mechanic-service")
+					return fmt.Errorf("failed to mark outbox event as processed: %w", err)
+				}
+				p.logger.Info("Marked outbox event as processed in transaction", "eventID", event.ID, "app", "mechanic-service")
 				return nil
 			}
 
