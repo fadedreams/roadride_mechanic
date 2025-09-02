@@ -181,6 +181,7 @@ services:
       retries: 10
       start_period: 30s
 
+
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.7.1
     container_name: filebeat
@@ -189,7 +190,7 @@ services:
       - api-gateway-logs:/var/log/api-gateway:ro
       - mechanic-service-logs:/var/log/mechanic-service:ro
       - repair-service-logs:/var/log/repair-service:ro
-      - kafka-data:/bitnami/kafka:ro
+      - kafka-data:/bitnami/kafka:ro  # Kafka logs
       - schema-registry-logs:/var/log/schema-registry:ro
       - kafka-ui-logs:/logs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -207,79 +208,53 @@ services:
 
   kafka:
     image: bitnami/kafka:3.6
-    container_name: kafka
     ports:
-      - "9092:9092"
+      - "9092:9092"          # host → external listener
     environment:
-      - KAFKA_ENABLE_KRAFT=yes
-      - KAFKA_KRAFT_CLUSTER_ID=XqZrTh1yT8qXwjsn1a6L9A
-      - KAFKA_CFG_NODE_ID=1
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9094,EXTERNAL://localhost:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
-      - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      # — KRaft single‑node basics —
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_KRAFT_CLUSTER_ID: "XqZrTh1yT8qXwjsn1a6L9A"
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # — Listeners —
+      KAFKA_CFG_LISTENERS: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
       - app-network
-    healthcheck:
-      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  kafka-consul-sidecar:
-    build:
-      context: ./kafka-consul-sidecar
-      dockerfile: Dockerfile
-    container_name: kafka-consul-sidecar
-    networks:
-      - app-network
-    depends_on:
-      kafka:
-        condition: service_healthy
-      consul:
-        condition: service_healthy
-    environment:
-      - CONSUL_ADDRESS=consul:8500
-      - SERVICE_NAME=kafka
-      - SERVICE_ID=kafka-9094
-      - SERVICE_PORT=9094
-      - SERVICE_ADDRESS=kafka
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.5.0
-    container_name: schema-registry
     depends_on:
       - kafka
     ports:
       - "8081:8081"
     environment:
-      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
-      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
-      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=PLAINTEXT://kafka:9094
+      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka:9094"
     networks:
       - app-network
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
     depends_on:
       - kafka
       - schema-registry
     ports:
       - "8080:8080"
     environment:
-      - KAFKA_CLUSTERS_0_NAME=dev
-      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9094
-      - KAFKA_CLUSTERS_0_SCHEMAREGISTRY=http://schema-registry:8081
-      - AUTH_TYPE=DISABLED
+      KAFKA_CLUSTERS_0_NAME: "dev"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8081"
+      AUTH_TYPE: "DISABLED"
     networks:
       - app-network
 

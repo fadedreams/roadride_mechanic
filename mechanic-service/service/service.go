@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/hamba/avro/v2"
-	"github.com/hashicorp/consul/api"
+	_ "github.com/hashicorp/consul/api"
 	"log/slog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -31,43 +31,13 @@ func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 	_, span := otel.Tracer("mechanic-service").Start(context.Background(), "InitializeService")
 	defer span.End()
 
-	// Initialize Consul client
-	consulAddr := os.Getenv("CONSUL_ADDRESS")
-	if consulAddr == "" {
-		consulAddr = "consul:8500"
-	}
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = consulAddr
-	consulClient, err := api.NewClient(consulConfig)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create Consul client")
-		logger.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
-		panic(fmt.Sprintf("failed to create Consul client: %v", err))
-	}
-
-	// Query Consul for Kafka service
-	serviceName := "kafka"
-	services, _, err := consulClient.Agent().Service(serviceName+"-9094", nil)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to query Consul for Kafka service")
-		logger.Error("Failed to query Consul for Kafka service", "error", err, "app", "mechanic-service")
-		panic(fmt.Sprintf("failed to query Consul for Kafka service: %v", err))
-	}
-	if services == nil {
-		err := fmt.Errorf("Kafka service not found in Consul")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		logger.Error("Kafka service not found in Consul", "serviceName", serviceName, "app", "mechanic-service")
-		panic("Kafka service not found in Consul")
-	}
-	bootstrapServers := fmt.Sprintf("%s:%d", services.Address, services.Port)
+	// Set Kafka bootstrap servers directly
+	bootstrapServers := "kafka:9094"
 	span.SetAttributes(
-		attribute.String("kafkaServiceName", serviceName),
+		attribute.String("kafkaServiceName", "kafka"),
 		attribute.String("bootstrapServers", bootstrapServers),
 	)
-	logger.Info("Resolved Kafka service from Consul", "bootstrapServers", bootstrapServers, "app", "mechanic-service")
+	logger.Info("Using Kafka service", "bootstrapServers", bootstrapServers, "app", "mechanic-service")
 
 	// Load Avro schema for outbox processor
 	schemaBytes, err := os.ReadFile("repair_event.avsc")
