@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 	"time"
-	"mechanic-service/service"
 
-	"log/slog"
 	"mechanic-service/domain"
 	"mechanic-service/handlers"
 	"mechanic-service/logging"
+	"mechanic-service/service"
+
+	"log/slog"
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"

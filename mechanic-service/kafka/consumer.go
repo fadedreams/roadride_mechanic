@@ -5,12 +5,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"time"
 
-	"log/slog"
-
+	"mechanic-service/domain"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/hamba/avro/v2"
 	"github.com/riferrei/srclient"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"log/slog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -47,15 +50,16 @@ type Consumer struct {
 	topic         string
 	logger        *slog.Logger
 	tracer        trace.Tracer
+	repo          domain.MechanicRepository
 }
 
-func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, logger *slog.Logger) (*Consumer, error) {
+func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, logger *slog.Logger, repo domain.MechanicRepository) (*Consumer, error) {
 	// Initialize Kafka consumer
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  bootstrapServers,
 		"group.id":           groupID,
 		"auto.offset.reset":  "earliest",
-		"enable.auto.commit": true,
+		"enable.auto.commit": false, // Disable auto-commit to control commits
 	}
 	c, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -82,11 +86,12 @@ func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, log
 		topic:         topic,
 		logger:        logger,
 		tracer:        otel.Tracer("mechanic-service"),
+		repo:          repo,
 	}, nil
 }
 
 // Start begins consuming messages from the Kafka topic
-func (c *Consumer) Start(ctx context.Context, processFunc func(context.Context, *RepairEvent) error) error {
+func (c *Consumer) Start(ctx context.Context) error {
 	_, span := c.tracer.Start(ctx, "KafkaConsumerStart")
 	defer span.End()
 
@@ -151,30 +156,68 @@ func (c *Consumer) Start(ctx context.Context, processFunc func(context.Context, 
 				}
 			}
 
-			// Deserialize message
-			var event RepairEvent
-			err = avro.Unmarshal(c.schema, msg.Value[5:], &event)
+			// Store event in outbox
+			session, err := c.repo.(*MongoRepository).RepairCollection.Database().Client().StartSession()
 			if err != nil {
 				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to deserialize message")
-				c.logger.Error("Failed to deserialize message", "error", err, "app", "mechanic-service")
+				span.SetStatus(codes.Error, "Failed to start MongoDB session")
+				c.logger.Error("Failed to start MongoDB session", "error", err, "app", "mechanic-service")
+				span.End()
+				continue
+			}
+			defer session.EndSession(ctx)
+
+			err = session.StartTransaction()
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Failed to start transaction")
+				c.logger.Error("Failed to start transaction", "error", err, "app", "mechanic-service")
 				span.End()
 				continue
 			}
 
-			// Process the event
-			err = processFunc(ctx, &event)
+			err = mongo.WithSession(ctx, session, func(sc mongo.SessionContext) error {
+				outboxEvent := &domain.OutboxEvent{
+					ID:        primitive.NewObjectID().Hex(),
+					EventType: "RepairEvent",
+					Payload:   msg.Value,
+					CreatedAt: time.Now(),
+					Processed: false,
+				}
+				if err := c.repo.SaveOutboxEvent(sc, outboxEvent); err != nil {
+					return fmt.Errorf("failed to save outbox event: %w", err)
+				}
+				c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "app", "mechanic-service")
+				return nil
+			})
 			if err != nil {
 				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to process event")
-				c.logger.Error("Failed to process event", "repairID", event.ID, "error", err, "app", "mechanic-service")
+				span.SetStatus(codes.Error, "Transaction failed")
+				c.logger.Error("Transaction failed", "error", err, "app", "mechanic-service")
+				session.AbortTransaction(ctx)
 				span.End()
 				continue
 			}
 
-			c.logger.Info("Processed repair event",
-				"repairID", event.ID,
-				"status", event.Status,
+			if err := session.CommitTransaction(ctx); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Failed to commit transaction")
+				c.logger.Error("Failed to commit transaction", "error", err, "app", "mechanic-service")
+				span.End()
+				continue
+			}
+
+			// Commit Kafka offset
+			_, err = c.kafkaConsumer.CommitMessage(msg)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Failed to commit Kafka offset")
+				c.logger.Error("Failed to commit Kafka offset", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "error", err, "app", "mechanic-service")
+				span.End()
+				continue
+			}
+
+			c.logger.Info("Committed Kafka message and outbox event",
 				"topic", *msg.TopicPartition.Topic,
 				"partition", msg.TopicPartition.Partition,
 				"offset", msg.TopicPartition.Offset,

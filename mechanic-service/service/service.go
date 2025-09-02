@@ -3,13 +3,16 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math"
 	"mechanic-service/domain"
 	"mechanic-service/kafka"
 	"os"
+	"time"
 
+	"github.com/hamba/avro/v2"
 	"github.com/hashicorp/consul/api"
+	"go.mongodb.org/mongo-driver/mongo"
+	"log/slog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -18,10 +21,11 @@ import (
 
 // Service implements the business logic for the mechanic service
 type Service struct {
-	repo          domain.MechanicRepository
-	tracer        trace.Tracer
-	logger        *slog.Logger
-	KafkaConsumer *kafka.Consumer
+	repo           domain.MechanicRepository
+	tracer         trace.Tracer
+	logger         *slog.Logger
+	KafkaConsumer  *kafka.Consumer
+	outboxProcessor *kafka.OutboxProcessor
 }
 
 // NewService creates a new instance of the mechanic service
@@ -67,8 +71,24 @@ func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 	)
 	logger.Info("Resolved Kafka service from Consul", "bootstrapServers", bootstrapServers, "app", "mechanic-service")
 
+	// Load Avro schema for outbox processor
+	schemaBytes, err := os.ReadFile("repair_event.avsc")
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to read schema file")
+		logger.Error("Failed to read schema file", "error", err, "app", "mechanic-service")
+		panic(fmt.Sprintf("failed to read schema file: %v", err))
+	}
+	schema, err := avro.Parse(string(schemaBytes))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to parse schema")
+		logger.Error("Failed to parse schema", "error", err, "app", "mechanic-service")
+		panic(fmt.Sprintf("failed to parse schema: %v", err))
+	}
+
 	// Initialize Kafka consumer
-	consumer, err := kafka.NewConsumer(bootstrapServers, "http://schema-registry:8081", "repair-events", "mechanic-service-group", logger)
+	consumer, err := kafka.NewConsumer(bootstrapServers, "http://schema-registry:8081", "repair-events", "mechanic-service-group", logger, repo)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to initialize Kafka consumer")
@@ -77,104 +97,30 @@ func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 	}
 
 	svc := &Service{
-		repo:          repo,
-		tracer:        otel.Tracer("mechanic-service"),
-		logger:        logger,
-		KafkaConsumer: consumer,
+		repo:           repo,
+		tracer:         otel.Tracer("mechanic-service"),
+		logger:         logger,
+		KafkaConsumer:  consumer,
+		outboxProcessor: kafka.NewOutboxProcessor(repo, logger, schema),
 	}
 
 	// Start Kafka consumer in a separate goroutine
 	go func() {
-		err := consumer.Start(context.Background(), svc.processRepairEvent)
+		err := consumer.Start(context.Background())
 		if err != nil {
 			logger.Error("Kafka consumer stopped with error", "error", err, "app", "mechanic-service")
 		}
 	}()
 
+	// Start outbox processor in a separate goroutine
+	go func() {
+		err := svc.outboxProcessor.Start(context.Background())
+		if err != nil {
+			logger.Error("Outbox processor stopped with error", "error", err, "app", "mechanic-service")
+		}
+	}()
+
 	return svc
-}
-
-// processRepairEvent processes incoming Kafka repair events
-func (s *Service) processRepairEvent(ctx context.Context, event *kafka.RepairEvent) error {
-	_, span := s.tracer.Start(ctx, "ProcessRepairEvent")
-	defer span.End()
-
-	s.logger.Info("Processing repair event",
-		"repairID", event.ID,
-		"status", event.Status,
-		"repairType", event.RepairType,
-		"totalPrice", event.TotalPrice,
-		"app", "mechanic-service")
-	span.SetAttributes(
-		attribute.String("repairID", event.ID),
-		attribute.String("status", event.Status),
-		attribute.String("repairType", event.RepairType),
-		attribute.Float64("totalPrice", event.TotalPrice),
-	)
-
-	// Convert RepairEvent to domain.Repair
-	var userLocation *domain.Location
-	if event.UserLocation != nil {
-		userLocation = &domain.Location{
-			Longitude: event.UserLocation.Longitude,
-			Latitude:  event.UserLocation.Latitude,
-		}
-	}
-
-	mechanics := make([]domain.MechanicInfo, len(event.Mechanics))
-	for i, m := range event.Mechanics {
-		mechanics[i] = domain.MechanicInfo{
-			ID:       m.ID,
-			Name:     m.Name,
-			Location: domain.Location{
-				Longitude: m.Location.Longitude,
-				Latitude:  m.Location.Latitude,
-			},
-			Distance: m.Distance,
-		}
-	}
-
-	repair := &domain.Repair{
-		ID:     event.ID,
-		UserID: event.UserID,
-		Status: event.Status,
-		RepairCost: &domain.RepairCost{
-			ID:           event.ID, // Assuming same ID for simplicity
-			UserID:       event.UserID,
-			RepairType:   event.RepairType,
-			TotalPrice:   event.TotalPrice,
-			UserLocation: userLocation,
-			Mechanics:    mechanics,
-		},
-	}
-
-	// Check if repair already exists in the database
-	existing, err := s.repo.GetAllRepairs(ctx)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to check existing repairs")
-		s.logger.Error("Failed to check existing repairs", "error", err, "app", "mechanic-service")
-		return err
-	}
-
-	for _, r := range existing {
-		if r.ID == repair.ID {
-			s.logger.Info("Repair already exists, skipping", "repairID", repair.ID, "app", "mechanic-service")
-			return nil
-		}
-	}
-
-	// Store the repair in the database
-	_, err = s.repo.(*domain.MongoRepository).RepairCollection.InsertOne(ctx, repair)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to store repair")
-		s.logger.Error("Failed to store repair", "repairID", repair.ID, "error", err, "app", "mechanic-service")
-		return err
-	}
-
-	s.logger.Info("Stored repair from Kafka event", "repairID", repair.ID, "app", "mechanic-service")
-	return nil
 }
 
 // haversine calculates the distance between two points in kilometers
