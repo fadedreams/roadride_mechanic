@@ -2,11 +2,15 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"mechanic-service/domain"
-	"github.com/hamba/avro/v2"
 	"log/slog"
+	"mechanic-service/domain"
+
+	"github.com/hamba/avro/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -116,7 +120,7 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 		}
 
 		// Start a transaction to check and insert repair
-		session, err := p.repo.(*MongoRepository).RepairCollection.Database().Client().StartSession()
+		session, err := p.repo.GetMongoClient(ctx).StartSession()
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to start MongoDB session")

@@ -157,7 +157,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 			}
 
 			// Store event in outbox
-			session, err := c.repo.(*MongoRepository).RepairCollection.Database().Client().StartSession()
+			session, err := c.repo.GetMongoClient(ctx).StartSession()
 			if err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "Failed to start MongoDB session")

@@ -14,6 +14,7 @@ import (
 
 // MechanicRepository defines the data access methods for mechanics
 type MechanicRepository interface {
+	GetMongoClient(ctx context.Context) *mongo.Client
 	GetMechanicByID(ctx context.Context, id string) (*Mechanic, error)
 	GetAllRepairs(ctx context.Context) ([]*Repair, error)
 	AssignRepair(ctx context.Context, repairID, mechanicID string) (*Repair, error)
@@ -25,6 +26,7 @@ type MechanicRepository interface {
 
 // MongoRepository implements the MechanicRepository interface
 type MongoRepository struct {
+	client             *mongo.Client
 	MechanicCollection *mongo.Collection
 	RepairCollection   *mongo.Collection
 	OutboxCollection   *mongo.Collection
@@ -33,10 +35,16 @@ type MongoRepository struct {
 // NewMongoRepository creates a new MongoRepository
 func NewMongoRepository(client *mongo.Client) *MongoRepository {
 	return &MongoRepository{
+		client:             client,
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
 		RepairCollection:   client.Database("repairdb").Collection("repairs"),
 		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
 	}
+}
+
+// GetMongoClient returns the MongoDB client
+func (r *MongoRepository) GetMongoClient(ctx context.Context) *mongo.Client {
+	return r.client
 }
 
 // GetMechanicByID retrieves a mechanic by ID
