@@ -7,11 +7,9 @@ import (
 	"mechanic-service/domain"
 	"mechanic-service/kafka"
 	"os"
-	"time"
 
 	"github.com/hamba/avro/v2"
 	"github.com/hashicorp/consul/api"
-	"go.mongodb.org/mongo-driver/mongo"
 	"log/slog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

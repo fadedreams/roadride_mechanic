@@ -184,7 +184,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 					CreatedAt: time.Now(),
 					Processed: false,
 				}
-				if err := c.repo.SaveOutboxEvent(sc, outboxEvent); err != nil {
+				if err := c.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
 					return fmt.Errorf("failed to save outbox event: %w", err)
 				}
 				c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "app", "mechanic-service")

@@ -14,7 +14,6 @@ import (
 
 // MechanicRepository defines the data access methods for mechanics
 type MechanicRepository interface {
-	GetMongoClient(ctx context.Context) *mongo.Client
 	GetMechanicByID(ctx context.Context, id string) (*Mechanic, error)
 	GetAllRepairs(ctx context.Context) ([]*Repair, error)
 	AssignRepair(ctx context.Context, repairID, mechanicID string) (*Repair, error)
@@ -22,23 +21,25 @@ type MechanicRepository interface {
 	GetUnprocessedOutboxEvents(ctx context.Context) ([]*OutboxEvent, error)
 	MarkOutboxEventProcessed(ctx context.Context, eventID string) error
 	InsertRepair(ctx context.Context, session mongo.SessionContext, repair *Repair) error
+	GetMongoClient(ctx context.Context) *mongo.Client
+	CheckRepairExists(ctx context.Context, session mongo.SessionContext, repairID string) (bool, error)
 }
 
 // MongoRepository implements the MechanicRepository interface
 type MongoRepository struct {
-	client             *mongo.Client
 	MechanicCollection *mongo.Collection
 	RepairCollection   *mongo.Collection
 	OutboxCollection   *mongo.Collection
+	client             *mongo.Client
 }
 
 // NewMongoRepository creates a new MongoRepository
 func NewMongoRepository(client *mongo.Client) *MongoRepository {
 	return &MongoRepository{
-		client:             client,
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
 		RepairCollection:   client.Database("repairdb").Collection("repairs"),
 		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
+		client:             client,
 	}
 }
 
@@ -224,4 +225,26 @@ func (r *MongoRepository) InsertRepair(ctx context.Context, session mongo.Sessio
 		attribute.String("status", repair.Status),
 	)
 	return nil
+}
+
+// CheckRepairExists checks if a repair exists by ID
+func (r *MongoRepository) CheckRepairExists(ctx context.Context, session mongo.SessionContext, repairID string) (bool, error) {
+	_, span := otel.Tracer("mechanic-service").Start(ctx, "MongoCheckRepairExists")
+	defer span.End()
+
+	var repair Repair
+	err := r.RepairCollection.FindOne(session, bson.M{"_id": repairID}).Decode(&repair)
+	if err == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to check repair existence")
+		return false, fmt.Errorf("failed to check repair existence: %v", err)
+	}
+	span.SetAttributes(
+		attribute.String("repairID", repairID),
+		attribute.Bool("exists", true),
+	)
+	return true, nil
 }

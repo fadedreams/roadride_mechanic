@@ -9,7 +9,6 @@ import (
 	"mechanic-service/domain"
 
 	"github.com/hamba/avro/v2"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -139,24 +138,23 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 
 		err = mongo.WithSession(ctx, session, func(sc mongo.SessionContext) error {
 			// Check if repair already exists
-			var existing Repair
-			err := p.repo.(*MongoRepository).RepairCollection.FindOne(sc, bson.M{"_id": repair.ID}).Decode(&existing)
-			if err == nil {
+			exists, err := p.repo.CheckRepairExists(ctx, sc, repair.ID)
+			if err != nil {
+				return fmt.Errorf("failed to check existing repair: %w", err)
+			}
+			if exists {
 				p.logger.Info("Repair already exists, skipping", "repairID", repair.ID, "app", "mechanic-service")
 				return nil
 			}
-			if err != mongo.ErrNoDocuments {
-				return fmt.Errorf("failed to check existing repair: %w", err)
-			}
 
 			// Insert the repair
-			if err := p.repo.InsertRepair(sc, repair); err != nil {
+			if err := p.repo.InsertRepair(ctx, sc, repair); err != nil {
 				return fmt.Errorf("failed to insert repair: %w", err)
 			}
 			p.logger.Info("Inserted repair in transaction", "repairID", repair.ID, "app", "mechanic-service")
 
 			// Mark the outbox event as processed
-			if err := p.repo.MarkOutboxEventProcessed(sc, event.ID); err != nil {
+			if err := p.repo.MarkOutboxEventProcessed(ctx, event.ID); err != nil {
 				return fmt.Errorf("failed to mark outbox event as processed: %w", err)
 			}
 			p.logger.Info("Marked outbox event as processed in transaction", "eventID", event.ID, "app", "mechanic-service")
