@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"mechanic-service/domain"
@@ -103,12 +105,12 @@ func main() {
 	logger.Info("Starting mechanic-service", "app", "mechanic-service", "timestamp", time.Now().Unix())
 
 	// Initialize tracer
-	shutdown, err := initTracer(logger)
+	shutdownTracer, err := initTracer(logger)
 	if err != nil {
 		logger.Error("Failed to initialize tracer", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
-	defer shutdown()
+	defer shutdownTracer()
 
 	// Initialize Consul client and register service
 	consulAddr := os.Getenv("CONSUL_ADDRESS")
@@ -181,11 +183,42 @@ func main() {
 	r.HandleFunc("/repairs/nearby", handler.ListNearbyRepairs).Methods("GET")
 	r.HandleFunc("/repairs/{repairID}/assign", handler.AssignRepair).Methods("POST")
 
-	// Start server
-	logger.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
-	if err := http.ListenAndServe(":"+servicePort, r); err != nil {
-		logger.Error("Failed to start server", "error", err, "app", "mechanic-service")
-		svc.KafkaConsumer.Close() // Ensure Kafka consumer is closed on server shutdown
-		os.Exit(1)
+	// Create HTTP server
+	server := &http.Server{
+		Addr:    ":" + servicePort,
+		Handler: r,
 	}
+
+	// Start server in a goroutine
+	go func() {
+		logger.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Failed to start server", "error", err, "app", "mechanic-service")
+			os.Exit(1)
+		}
+	}()
+
+	// Handle graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.Info("Received shutdown signal, shutting down gracefully", "app", "mechanic-service")
+
+	// Create a context with timeout for shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Shutdown the service (cancels Kafka consumer and outbox processor)
+	svc.Shutdown()
+
+	// Shutdown the HTTP server
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("Failed to shutdown server", "error", err, "app", "mechanic-service")
+	}
+
+	// Deregister from Consul
+	if err := consulClient.Agent().ServiceDeregister(serviceID); err != nil {
+		logger.Error("Failed to deregister from Consul", "error", err, "app", "mechanic-service")
+	}
+	logger.Info("Service shutdown complete", "app", "mechanic-service")
 }

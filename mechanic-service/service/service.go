@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/hamba/avro/v2"
-	_ "github.com/hashicorp/consul/api"
 	"log/slog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -24,6 +23,8 @@ type Service struct {
 	logger         *slog.Logger
 	KafkaConsumer  *kafka.Consumer
 	outboxProcessor *kafka.OutboxProcessor
+	ctx            context.Context // Store context for cancellation
+	cancel         context.CancelFunc
 }
 
 // NewService creates a new instance of the mechanic service
@@ -64,17 +65,23 @@ func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 		panic(fmt.Sprintf("failed to initialize Kafka consumer: %v", err))
 	}
 
+	// Create a cancellable context for the consumer and outbox processor
+	ctx, cancel := context.WithCancel(context.Background())
+
 	svc := &Service{
 		repo:           repo,
 		tracer:         otel.Tracer("mechanic-service"),
 		logger:         logger,
 		KafkaConsumer:  consumer,
 		outboxProcessor: kafka.NewOutboxProcessor(repo, logger, schema),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	// Start Kafka consumer in a separate goroutine
 	go func() {
-		err := consumer.Start(context.Background())
+		logger.Info("Starting Kafka consumer", "app", "mechanic-service")
+		err := consumer.Start(ctx)
 		if err != nil {
 			logger.Error("Kafka consumer stopped with error", "error", err, "app", "mechanic-service")
 		}
@@ -82,13 +89,21 @@ func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
 
 	// Start outbox processor in a separate goroutine
 	go func() {
-		err := svc.outboxProcessor.Start(context.Background())
+		logger.Info("Starting outbox processor", "app", "mechanic-service")
+		err := svc.outboxProcessor.Start(ctx)
 		if err != nil {
 			logger.Error("Outbox processor stopped with error", "error", err, "app", "mechanic-service")
 		}
 	}()
 
 	return svc
+}
+
+// Shutdown gracefully stops the service
+func (s *Service) Shutdown() {
+	s.logger.Info("Shutting down service", "app", "mechanic-service")
+	s.cancel() // Cancel the context to stop consumer and outbox processor
+	s.KafkaConsumer.Close()
 }
 
 // haversine calculates the distance between two points in kilometers

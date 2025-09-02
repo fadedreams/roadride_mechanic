@@ -27,7 +27,7 @@ func NewMongoRepository(client *mongo.Client) *MongoRepository {
 		RepairCollection:   client.Database("repairdb").Collection("repairs"),
 		CostCollection:     client.Database("repairdb").Collection("repair_costs"),
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
-		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
+		OutboxCollection:   client.Database("repairdb").Collection("repair_outbox"),
 	}
 }
 

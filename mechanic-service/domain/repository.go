@@ -38,7 +38,7 @@ func NewMongoRepository(client *mongo.Client) *MongoRepository {
 	return &MongoRepository{
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
 		RepairCollection:   client.Database("repairdb").Collection("repairs"),
-		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
+		OutboxCollection:   client.Database("repairdb").Collection("mechanic_outbox"),
 		client:             client,
 	}
 }

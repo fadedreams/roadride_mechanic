@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"log/slog"
 	"mechanic-service/domain"
-
 	"github.com/hamba/avro/v2"
+	"log/slog"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,6 +35,7 @@ func (p *OutboxProcessor) Start(ctx context.Context) error {
 	_, span := otel.Tracer("mechanic-service").Start(ctx, "OutboxProcessorStart")
 	defer span.End()
 
+	p.logger.Info("Outbox processor started", "app", "mechanic-service")
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -45,6 +45,7 @@ func (p *OutboxProcessor) Start(ctx context.Context) error {
 			p.logger.Info("Stopping outbox processor", "app", "mechanic-service")
 			return ctx.Err()
 		case <-ticker.C:
+			p.logger.Debug("Polling for unprocessed outbox events", "app", "mechanic-service")
 			if err := p.processOutboxEvents(ctx); err != nil {
 				p.logger.Error("Failed to process outbox events", "error", err, "app", "mechanic-service")
 			}
@@ -61,26 +62,38 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to get unprocessed outbox events")
+		p.logger.Error("Failed to get unprocessed outbox events", "error", err, "app", "mechanic-service")
 		return err
 	}
 	if len(events) == 0 {
+		p.logger.Debug("No unprocessed outbox events found", "app", "mechanic-service")
 		return nil
 	}
 
+	p.logger.Info("Found unprocessed outbox events", "count", len(events), "app", "mechanic-service")
 	for _, event := range events {
+		_, eventSpan := otel.Tracer("mechanic-service").Start(ctx, "ProcessOutboxEvent")
+		eventSpan.SetAttributes(
+			attribute.String("eventID", event.ID),
+			attribute.String("eventType", event.EventType),
+		)
+
 		// Deserialize the event payload
 		var repairEvent RepairEvent
 		if len(event.Payload) < 5 {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Invalid payload length")
+			err := fmt.Errorf("invalid payload length: %d", len(event.Payload))
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Invalid payload length")
 			p.logger.Error("Invalid payload length", "eventID", event.ID, "length", len(event.Payload), "app", "mechanic-service")
+			eventSpan.End()
 			continue
 		}
 		err := avro.Unmarshal(p.schema, event.Payload[5:], &repairEvent)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to deserialize event")
-			p.logger.Error("Failed to deserialize event", "eventID", event.ID, "error", err, "app", "mechanic-service")
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Failed to deserialize event")
+			p.logger.Error("Failed to deserialize event", "eventID", event.ID, "error", err, "payload", fmt.Sprintf("%x", event.Payload), "app", "mechanic-service")
+			eventSpan.End()
 			continue
 		}
 
@@ -121,18 +134,20 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 		// Start a transaction to check and insert repair
 		session, err := p.repo.GetMongoClient(ctx).StartSession()
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to start MongoDB session")
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Failed to start MongoDB session")
 			p.logger.Error("Failed to start MongoDB session", "eventID", event.ID, "error", err, "app", "mechanic-service")
+			eventSpan.End()
 			continue
 		}
 		defer session.EndSession(ctx)
 
 		err = session.StartTransaction()
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to start transaction")
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Failed to start transaction")
 			p.logger.Error("Failed to start transaction", "eventID", event.ID, "error", err, "app", "mechanic-service")
+			eventSpan.End()
 			continue
 		}
 
@@ -140,6 +155,7 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 			// Check if repair already exists
 			exists, err := p.repo.CheckRepairExists(ctx, sc, repair.ID)
 			if err != nil {
+				p.logger.Error("Failed to check repair existence", "repairID", repair.ID, "error", err, "app", "mechanic-service")
 				return fmt.Errorf("failed to check existing repair: %w", err)
 			}
 			if exists {
@@ -149,12 +165,14 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 
 			// Insert the repair
 			if err := p.repo.InsertRepair(ctx, sc, repair); err != nil {
+				p.logger.Error("Failed to insert repair", "repairID", repair.ID, "error", err, "app", "mechanic-service")
 				return fmt.Errorf("failed to insert repair: %w", err)
 			}
 			p.logger.Info("Inserted repair in transaction", "repairID", repair.ID, "app", "mechanic-service")
 
 			// Mark the outbox event as processed
 			if err := p.repo.MarkOutboxEventProcessed(ctx, event.ID); err != nil {
+				p.logger.Error("Failed to mark outbox event as processed", "eventID", event.ID, "error", err, "app", "mechanic-service")
 				return fmt.Errorf("failed to mark outbox event as processed: %w", err)
 			}
 			p.logger.Info("Marked outbox event as processed in transaction", "eventID", event.ID, "app", "mechanic-service")
@@ -162,21 +180,24 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Transaction failed")
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Transaction failed")
 			p.logger.Error("Transaction failed", "eventID", event.ID, "error", err, "app", "mechanic-service")
 			session.AbortTransaction(ctx)
+			eventSpan.End()
 			continue
 		}
 
 		if err := session.CommitTransaction(ctx); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to commit transaction")
+			eventSpan.RecordError(err)
+			eventSpan.SetStatus(codes.Error, "Failed to commit transaction")
 			p.logger.Error("Failed to commit transaction", "eventID", event.ID, "error", err, "app", "mechanic-service")
+			eventSpan.End()
 			continue
 		}
 
 		p.logger.Info("Committed transaction for outbox event", "eventID", event.ID, "repairID", repair.ID, "app", "mechanic-service")
+		eventSpan.End()
 	}
 
 	span.SetAttributes(
