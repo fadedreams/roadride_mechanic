@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"mechanic-service/service"
 
 	"log/slog"
 	"mechanic-service/domain"
 	"mechanic-service/handlers"
 	"mechanic-service/logging"
-	"mechanic-service/service"
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
@@ -184,6 +184,7 @@ func main() {
 	logger.Info("Starting mechanic-service", "port", servicePort, "app", "mechanic-service")
 	if err := http.ListenAndServe(":"+servicePort, r); err != nil {
 		logger.Error("Failed to start server", "error", err, "app", "mechanic-service")
+		svc.KafkaConsumer.Close() // Ensure Kafka consumer is closed on server shutdown
 		os.Exit(1)
 	}
 }

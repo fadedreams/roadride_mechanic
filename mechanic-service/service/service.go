@@ -6,7 +6,10 @@ import (
 	"log/slog"
 	"math"
 	"mechanic-service/domain"
+	"mechanic-service/kafka"
+	"os"
 
+	"github.com/hashicorp/consul/api"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -15,18 +18,163 @@ import (
 
 // Service implements the business logic for the mechanic service
 type Service struct {
-	repo   domain.MechanicRepository
-	tracer trace.Tracer
-	logger *slog.Logger
+	repo          domain.MechanicRepository
+	tracer        trace.Tracer
+	logger        *slog.Logger
+	KafkaConsumer *kafka.Consumer
 }
 
 // NewService creates a new instance of the mechanic service
 func NewService(repo domain.MechanicRepository, logger *slog.Logger) *Service {
-	return &Service{
-		repo:   repo,
-		tracer: otel.Tracer("mechanic-service"),
-		logger: logger,
+	_, span := otel.Tracer("mechanic-service").Start(context.Background(), "InitializeService")
+	defer span.End()
+
+	// Initialize Consul client
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
 	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to create Consul client")
+		logger.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
+		panic(fmt.Sprintf("failed to create Consul client: %v", err))
+	}
+
+	// Query Consul for Kafka service
+	serviceName := "kafka"
+	services, _, err := consulClient.Agent().Service(serviceName+"-9094", nil)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to query Consul for Kafka service")
+		logger.Error("Failed to query Consul for Kafka service", "error", err, "app", "mechanic-service")
+		panic(fmt.Sprintf("failed to query Consul for Kafka service: %v", err))
+	}
+	if services == nil {
+		err := fmt.Errorf("Kafka service not found in Consul")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		logger.Error("Kafka service not found in Consul", "serviceName", serviceName, "app", "mechanic-service")
+		panic("Kafka service not found in Consul")
+	}
+	bootstrapServers := fmt.Sprintf("%s:%d", services.Address, services.Port)
+	span.SetAttributes(
+		attribute.String("kafkaServiceName", serviceName),
+		attribute.String("bootstrapServers", bootstrapServers),
+	)
+	logger.Info("Resolved Kafka service from Consul", "bootstrapServers", bootstrapServers, "app", "mechanic-service")
+
+	// Initialize Kafka consumer
+	consumer, err := kafka.NewConsumer(bootstrapServers, "http://schema-registry:8081", "repair-events", "mechanic-service-group", logger)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to initialize Kafka consumer")
+		logger.Error("Failed to initialize Kafka consumer", "error", err, "app", "mechanic-service")
+		panic(fmt.Sprintf("failed to initialize Kafka consumer: %v", err))
+	}
+
+	svc := &Service{
+		repo:          repo,
+		tracer:        otel.Tracer("mechanic-service"),
+		logger:        logger,
+		KafkaConsumer: consumer,
+	}
+
+	// Start Kafka consumer in a separate goroutine
+	go func() {
+		err := consumer.Start(context.Background(), svc.processRepairEvent)
+		if err != nil {
+			logger.Error("Kafka consumer stopped with error", "error", err, "app", "mechanic-service")
+		}
+	}()
+
+	return svc
+}
+
+// processRepairEvent processes incoming Kafka repair events
+func (s *Service) processRepairEvent(ctx context.Context, event *kafka.RepairEvent) error {
+	_, span := s.tracer.Start(ctx, "ProcessRepairEvent")
+	defer span.End()
+
+	s.logger.Info("Processing repair event",
+		"repairID", event.ID,
+		"status", event.Status,
+		"repairType", event.RepairType,
+		"totalPrice", event.TotalPrice,
+		"app", "mechanic-service")
+	span.SetAttributes(
+		attribute.String("repairID", event.ID),
+		attribute.String("status", event.Status),
+		attribute.String("repairType", event.RepairType),
+		attribute.Float64("totalPrice", event.TotalPrice),
+	)
+
+	// Convert RepairEvent to domain.Repair
+	var userLocation *domain.Location
+	if event.UserLocation != nil {
+		userLocation = &domain.Location{
+			Longitude: event.UserLocation.Longitude,
+			Latitude:  event.UserLocation.Latitude,
+		}
+	}
+
+	mechanics := make([]domain.MechanicInfo, len(event.Mechanics))
+	for i, m := range event.Mechanics {
+		mechanics[i] = domain.MechanicInfo{
+			ID:       m.ID,
+			Name:     m.Name,
+			Location: domain.Location{
+				Longitude: m.Location.Longitude,
+				Latitude:  m.Location.Latitude,
+			},
+			Distance: m.Distance,
+		}
+	}
+
+	repair := &domain.Repair{
+		ID:     event.ID,
+		UserID: event.UserID,
+		Status: event.Status,
+		RepairCost: &domain.RepairCost{
+			ID:           event.ID, // Assuming same ID for simplicity
+			UserID:       event.UserID,
+			RepairType:   event.RepairType,
+			TotalPrice:   event.TotalPrice,
+			UserLocation: userLocation,
+			Mechanics:    mechanics,
+		},
+	}
+
+	// Check if repair already exists in the database
+	existing, err := s.repo.GetAllRepairs(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to check existing repairs")
+		s.logger.Error("Failed to check existing repairs", "error", err, "app", "mechanic-service")
+		return err
+	}
+
+	for _, r := range existing {
+		if r.ID == repair.ID {
+			s.logger.Info("Repair already exists, skipping", "repairID", repair.ID, "app", "mechanic-service")
+			return nil
+		}
+	}
+
+	// Store the repair in the database
+	_, err = s.repo.(*domain.MongoRepository).RepairCollection.InsertOne(ctx, repair)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to store repair")
+		s.logger.Error("Failed to store repair", "repairID", repair.ID, "error", err, "app", "mechanic-service")
+		return err
+	}
+
+	s.logger.Info("Stored repair from Kafka event", "repairID", repair.ID, "app", "mechanic-service")
+	return nil
 }
 
 // haversine calculates the distance between two points in kilometers

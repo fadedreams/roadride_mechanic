@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"mechanic-service/domain"
 
 	"log/slog"
 
