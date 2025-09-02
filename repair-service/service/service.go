@@ -191,7 +191,7 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 	copy(encodedPayload[5:], payload)
 
 	// Save repair cost, repair, and outbox event in a transaction
-	session, err := s.repo.(*MongoRepository).RepairCollection.Database().Client().StartSession()
+	session, err := s.repo.(*domain.MongoRepository).RepairCollection.Database().Client().StartSession()
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to start MongoDB session")
@@ -226,7 +226,7 @@ func (s *service) CreateRepair(ctx context.Context, cost *domain.RepairCostModel
 			CreatedAt: time.Now(),
 			Processed: false,
 		}
-		if err := s.repo.SaveOutboxEvent(sc, outboxEvent); err != nil {
+		if err := s.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
 			return fmt.Errorf("failed to save outbox event: %w", err)
 		}
 		s.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "app", "repair-service")
@@ -528,7 +528,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 	}
 
 	// Update repair status and save outbox event in a transaction
-	session, err := s.repo.(*MongoRepository).RepairCollection.Database().Client().StartSession()
+	session, err := s.repo.(*domain.MongoRepository).RepairCollection.Database().Client().StartSession()
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to start MongoDB session")
@@ -597,7 +597,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 		// Add Schema Registry wire format: magic byte (0) + 4-byte schema ID
 		encodedPayload := make([]byte, 5+len(payload))
 		encodedPayload[0] = 0 // Magic byte
-		binary.BigEndian.PutUint32(encodedPayload[1:5], uint32(s.KafkaProducer.schemaID))
+		binary.BigEndian.PutUint32(encodedPayload[1:5], uint32(s.KafkaProducer.SchemaID))
 		copy(encodedPayload[5:], payload)
 
 		outboxEvent := &domain.OutboxEvent{
@@ -607,7 +607,7 @@ func (s *service) UpdateRepair(ctx context.Context, repairID string, status stri
 			CreatedAt: time.Now(),
 			Processed: false,
 		}
-		if err := s.repo.SaveOutboxEvent(sc, outboxEvent); err != nil {
+		if err := s.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
 			return fmt.Errorf("failed to save outbox event: %w", err)
 		}
 		s.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "app", "repair-service")
