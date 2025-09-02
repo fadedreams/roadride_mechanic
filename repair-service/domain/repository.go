@@ -3,27 +3,41 @@ package domain
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// OutboxEvent represents an event in the outbox collection
+type OutboxEvent struct {
+	ID          string    `bson:"_id,omitempty"`
+	EventType   string    `bson:"event_type"`
+	Payload     []byte    `bson:"payload"`
+	CreatedAt   time.Time `bson:"created_at"`
+	Processed   bool      `bson:"processed"`
+	ProcessedAt *time.Time `bson:"processed_at,omitempty"`
+}
 
 // MongoRepository implements the RepairRepository interface
 type MongoRepository struct {
-	RepairCollection  *mongo.Collection
-	CostCollection    *mongo.Collection
+	RepairCollection   *mongo.Collection
+	CostCollection     *mongo.Collection
 	MechanicCollection *mongo.Collection
+	OutboxCollection   *mongo.Collection
 }
 
 // NewMongoRepository creates a new MongoRepository
 func NewMongoRepository(client *mongo.Client) *MongoRepository {
 	return &MongoRepository{
-		RepairCollection:  client.Database("repairdb").Collection("repairs"),
-		CostCollection:    client.Database("repairdb").Collection("repair_costs"),
+		RepairCollection:   client.Database("repairdb").Collection("repairs"),
+		CostCollection:     client.Database("repairdb").Collection("repair_costs"),
 		MechanicCollection: client.Database("repairdb").Collection("mechanics"),
+		OutboxCollection:   client.Database("repairdb").Collection("outbox"),
 	}
 }
 
@@ -190,19 +204,96 @@ func (r *MongoRepository) GetAllRepairs(ctx context.Context) ([]*RepairModel, er
 
 	return repairs, nil
 }
+
 // WatchRepairs sets up a MongoDB change stream for repair insertions
 func (r *MongoRepository) WatchRepairs(ctx context.Context) (*mongo.ChangeStream, error) {
-    _, span := otel.Tracer("repair-service").Start(ctx, "MongoWatchRepairs")
-    defer span.End()
+	_, span := otel.Tracer("repair-service").Start(ctx, "MongoWatchRepairs")
+	defer span.End()
 
-    pipeline := mongo.Pipeline{
-        bson.D{{"$match", bson.D{{"operationType", "insert"}}}},
-    }
-    changeStream, err := r.RepairCollection.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
-    if err != nil {
-        span.RecordError(err)
-        span.SetStatus(codes.Error, "Failed to open change stream")
-        return nil, fmt.Errorf("failed to open change stream: %v", err)
-    }
-    return changeStream, nil
+	pipeline := mongo.Pipeline{
+		bson.D{{"$match", bson.D{{"operationType", "insert"}}}},
+	}
+	changeStream, err := r.RepairCollection.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to open change stream")
+		return nil, fmt.Errorf("failed to open change stream: %v", err)
+	}
+	return changeStream, nil
+}
+
+// SaveOutboxEvent saves an event to the outbox collection
+func (r *MongoRepository) SaveOutboxEvent(ctx context.Context, session mongo.SessionContext, event *OutboxEvent) error {
+	_, span := otel.Tracer("repair-service").Start(ctx, "MongoSaveOutboxEvent")
+	defer span.End()
+
+	_, err := r.OutboxCollection.InsertOne(session, event)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to save outbox event")
+		return err
+	}
+	span.SetAttributes(
+		attribute.String("eventID", event.ID),
+		attribute.String("eventType", event.EventType),
+	)
+	return nil
+}
+
+// GetUnprocessedOutboxEvents retrieves unprocessed outbox events
+func (r *MongoRepository) GetUnprocessedOutboxEvents(ctx context.Context) ([]*OutboxEvent, error) {
+	_, span := otel.Tracer("repair-service").Start(ctx, "MongoGetUnprocessedOutboxEvents")
+	defer span.End()
+
+	var events []*OutboxEvent
+	cursor, err := r.OutboxCollection.Find(ctx, bson.M{"processed": false})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to find unprocessed outbox events")
+		return nil, fmt.Errorf("failed to find unprocessed outbox events: %v", err)
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var event OutboxEvent
+		if err := cursor.Decode(&event); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to decode outbox event")
+			return nil, fmt.Errorf("failed to decode outbox event: %v", err)
+		}
+		events = append(events, &event)
+	}
+	if err := cursor.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Cursor error")
+		return nil, fmt.Errorf("cursor error: %v", err)
+	}
+
+	span.SetAttributes(
+		attribute.Int("eventCount", len(events)),
+	)
+	return events, nil
+}
+
+// MarkOutboxEventProcessed marks an outbox event as processed
+func (r *MongoRepository) MarkOutboxEventProcessed(ctx context.Context, eventID string) error {
+	_, span := otel.Tracer("repair-service").Start(ctx, "MongoMarkOutboxEventProcessed")
+	defer span.End()
+
+	now := time.Now()
+	_, err := r.OutboxCollection.UpdateOne(ctx, bson.M{"_id": eventID}, bson.M{
+		"$set": bson.M{
+			"processed":    true,
+			"processed_at": now,
+		},
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to mark outbox event as processed")
+		return err
+	}
+	span.SetAttributes(
+		attribute.String("eventID", eventID),
+	)
+	return nil
 }
