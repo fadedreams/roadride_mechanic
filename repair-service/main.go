@@ -18,7 +18,6 @@ import (
 	"log/slog"
 
 	"github.com/gorilla/mux"
-	"github.com/hashicorp/consul/api"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -42,7 +41,7 @@ func initTracer(logger *slog.Logger) (func(), error) {
 	if jaegerEndpoint == "" {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
-	logger.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint)
+	logger.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint, "app", "repair-service")
 
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
@@ -51,17 +50,17 @@ func initTracer(logger *slog.Logger) (func(), error) {
 		otlptracehttp.WithURLPath("/v1/traces"),
 	)
 	if err != nil {
-		logger.Error("Failed to create OTLP exporter", "error", err)
+		logger.Error("Failed to create OTLP exporter", "error", err, "app", "repair-service")
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
-	// Test Jaeger connectivity with a GET request to a health endpoint
+	// Test Jaeger connectivity
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
-		logger.Error("Failed to connect to Jaeger UI (health check)", "error", err)
+		logger.Error("Failed to connect to Jaeger UI (health check)", "error", err, "app", "repair-service")
 	} else {
-		logger.Info("Jaeger UI health check", "status_code", resp.StatusCode)
+		logger.Info("Jaeger UI health check", "status_code", resp.StatusCode, "app", "repair-service")
 		resp.Body.Close()
 	}
 
@@ -78,9 +77,9 @@ func initTracer(logger *slog.Logger) (func(), error) {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
 	return func() {
-		logger.Info("Shutting down tracer provider")
+		logger.Info("Shutting down tracer provider", "app", "repair-service")
 		if err := tp.Shutdown(context.Background()); err != nil {
-			logger.Error("Error shutting down tracer provider", "error", err)
+			logger.Error("Error shutting down tracer provider", "error", err, "app", "repair-service")
 		}
 	}, nil
 }
@@ -104,14 +103,14 @@ func connectToMongoDB(uri string, retries int, delay time.Duration, logger *slog
 				}).Decode(&result)
 				if err == nil && result.Ok == 1 {
 					cancel()
-					logger.Info("Connected to MongoDB", "uri", uri)
+					logger.Info("Connected to MongoDB", "uri", uri, "app", "repair-service")
 					return client, nil
 				}
-				logger.Error("Replica set not ready", "error", err)
+				logger.Error("Replica set not ready", "error", err, "app", "repair-service")
 			}
 		}
 		cancel()
-		logger.Error("Failed to connect to MongoDB", "attempt", i+1, "max_attempts", retries, "error", err)
+		logger.Error("Failed to connect to MongoDB", "attempt", i+1, "max_attempts", retries, "error", err, "app", "repair-service")
 		if i < retries-1 {
 			time.Sleep(delay)
 		}
@@ -135,7 +134,7 @@ func main() {
 	// Initialize tracer
 	shutdown, err := initTracer(logger)
 	if err != nil {
-		logger.Error("Failed to initialize tracer", "error", err)
+		logger.Error("Failed to initialize tracer", "error", err, "app", "repair-service")
 		os.Exit(1)
 	}
 	defer shutdown()
@@ -143,48 +142,15 @@ func main() {
 	// Connect to MongoDB with retries
 	client, err := connectToMongoDB("mongodb://mongodb:27017/repairdb?replicaSet=rs0", 5, 2*time.Second, logger)
 	if err != nil {
-		logger.Error("Failed to connect to MongoDB", "error", err)
+		logger.Error("Failed to connect to MongoDB", "error", err, "app", "repair-service")
 		os.Exit(1)
 	}
-
-	// Initialize Consul client
-	consulAddr := os.Getenv("CONSUL_ADDRESS")
-	if consulAddr == "" {
-		consulAddr = "consul:8500"
-	}
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = consulAddr
-	consulClient, err := api.NewClient(consulConfig)
-	if err != nil {
-		logger.Error("Failed to create Consul client", "error", err)
-		os.Exit(1)
-	}
-
-	// Register service with Consul
-	serviceName := os.Getenv("SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "repair-service"
-	}
-	servicePort := os.Getenv("SERVICE_PORT")
-	if servicePort == "" {
-		servicePort = "8087"
-	}
-	serviceID := serviceName + "-" + servicePort
-	registration := &api.AgentServiceRegistration{
-		ID:      serviceID,
-		Name:    serviceName,
-		Port:    8087,
-		Address: "repair-service",
-		Check: &api.AgentServiceCheck{
-			HTTP:     fmt.Sprintf("http://repair-service:%s/health", servicePort),
-			Interval: "10s",
-			Timeout:  "5s",
-		},
-	}
-	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
-		logger.Error("Failed to register with Consul", "error", err)
-		os.Exit(1)
-	}
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			logger.Error("Failed to disconnect from MongoDB", "error", err, "app", "repair-service")
+		}
+	}()
+	logger.Info("Connected to MongoDB", "uri", "mongodb://mongodb:27017/repairdb?replicaSet=rs0", "app", "repair-service")
 
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
@@ -198,7 +164,7 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer("repair-service").Start(r.Context(), "HealthCheck")
 		defer span.End()
-		logger.Info("Health check requested")
+		logger.Info("Health check requested", "app", "repair-service")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "OK")
 	}).Methods("GET")
@@ -208,18 +174,18 @@ func main() {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "CreateRepair")
 		defer span.End()
 
-		logger.Info("Received POST /repairs request")
+		logger.Info("Received POST /repairs request", "app", "repair-service")
 		var cost domain.RepairCostModel
 		if err := json.NewDecoder(r.Body).Decode(&cost); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Invalid request body")
-			logger.Error("Failed to decode request body", "error", err)
+			logger.Error("Failed to decode request body", "error", err, "app", "repair-service")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body: " + err.Error()})
 			return
 		}
-		logger.Info("Decoded cost", "cost", cost)
+		logger.Info("Decoded cost", "cost", cost, "app", "repair-service")
 		span.SetAttributes(
 			attribute.String("userID", cost.UserID),
 			attribute.String("repairType", cost.RepairType),
@@ -227,14 +193,14 @@ func main() {
 		)
 		if cost.ID == "" {
 			cost.ID = primitive.NewObjectID().Hex()
-			logger.Info("Generated new ID for cost", "costID", cost.ID)
+			logger.Info("Generated new ID for cost", "costID", cost.ID, "app", "repair-service")
 			span.SetAttributes(attribute.String("costID", cost.ID))
 		}
 		repair, err := svc.CreateRepair(ctx, &cost)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to create repair")
-			logger.Error("Failed to create repair", "error", err)
+			logger.Error("Failed to create repair", "error", err, "app", "repair-service")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create repair: " + err.Error()})
@@ -244,12 +210,12 @@ func main() {
 		if err := json.NewEncoder(w).Encode(repair); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			logger.Error("Failed to encode response", "error", err)
+			logger.Error("Failed to encode response", "error", err, "app", "repair-service")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
 		}
-		logger.Info("Successfully sent response for POST /repairs")
+		logger.Info("Successfully sent response for POST /repairs", "app", "repair-service")
 	}).Methods("POST")
 
 	// Estimate repair cost endpoint
@@ -265,7 +231,7 @@ func main() {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Invalid request body")
-			logger.Error("Failed to decode request body", "error", err)
+			logger.Error("Failed to decode request body", "error", err, "app", "repair-service")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body: " + err.Error()})
@@ -281,7 +247,7 @@ func main() {
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to estimate repair cost")
-			logger.Error("Failed to estimate repair cost", "error", err)
+			logger.Error("Failed to estimate repair cost", "error", err, "app", "repair-service")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to estimate repair cost: " + err.Error()})
@@ -291,7 +257,7 @@ func main() {
 		if err := json.NewEncoder(w).Encode(cost); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			logger.Error("Failed to encode response", "error", err)
+			logger.Error("Failed to encode response", "error", err, "app", "repair-service")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
@@ -303,12 +269,12 @@ func main() {
 		ctx, span := otel.Tracer("repair-service").Start(r.Context(), "GetAllRepairs")
 		defer span.End()
 
-		logger.Info("Received GET /repairs request")
+		logger.Info("Received GET /repairs request", "app", "repair-service")
 		repairs, err := svc.GetAllRepairs(ctx)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to get repairs")
-			logger.Error("Failed to get repairs", "error", err)
+			logger.Error("Failed to get repairs", "error", err, "app", "repair-service")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to get repairs: " + err.Error()})
@@ -321,12 +287,12 @@ func main() {
 		if err := json.NewEncoder(w).Encode(repairs); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Failed to encode response")
-			logger.Error("Failed to encode response", "error", err)
+			logger.Error("Failed to encode response", "error", err, "app", "repair-service")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to encode response: " + err.Error()})
 			return
 		}
-		logger.Info("Successfully sent response for GET /repairs")
+		logger.Info("Successfully sent response for GET /repairs", "app", "repair-service")
 	}).Methods("GET")
 
 	// Start gRPC server in a separate goroutine
@@ -337,15 +303,15 @@ func main() {
 		}
 		lis, err := net.Listen("tcp", ":"+grpcPort)
 		if err != nil {
-			logger.Error("Failed to listen for gRPC", "error", err)
+			logger.Error("Failed to listen for gRPC", "error", err, "app", "repair-service")
 			os.Exit(1)
 		}
 		grpcServer := grpc.NewServer()
 		proto.RegisterRepairServiceServer(grpcServer, grpcsvc.NewRepairServer(repo, logger))
-		reflection.Register(grpcServer) // Enable reflection for debugging
-		logger.Info("Starting gRPC server", "port", grpcPort)
+		reflection.Register(grpcServer)
+		logger.Info("Starting gRPC server", "port", grpcPort, "app", "repair-service")
 		if err := grpcServer.Serve(lis); err != nil {
-			logger.Error("Failed to start gRPC server", "error", err)
+			logger.Error("Failed to start gRPC server", "error", err, "app", "repair-service")
 			os.Exit(1)
 		}
 	}()
@@ -355,9 +321,10 @@ func main() {
 	if port == "" {
 		port = "8087"
 	}
-	logger.Info("Starting repair-service", "port", port)
+	logger.Info("Starting repair-service", "port", port, "app", "repair-service")
 	if err := http.ListenAndServe(":"+port, r); err != nil {
-		logger.Error("Failed to start server", "error", err)
+		logger.Error("Failed to start server", "error", err, "app", "repair-service")
+		svc.KafkaProducer.Close()
 		os.Exit(1)
 	}
 }

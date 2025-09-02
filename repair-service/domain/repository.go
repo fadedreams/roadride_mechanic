@@ -13,15 +13,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-// OutboxEvent represents an event in the outbox collection
-type OutboxEvent struct {
-	ID          string    `bson:"_id,omitempty"`
-	EventType   string    `bson:"event_type"`
-	Payload     []byte    `bson:"payload"`
-	CreatedAt   time.Time `bson:"created_at"`
-	Processed   bool      `bson:"processed"`
-	ProcessedAt *time.Time `bson:"processed_at,omitempty"`
-}
 
 // MongoRepository implements the RepairRepository interface
 type MongoRepository struct {
