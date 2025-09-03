@@ -23,6 +23,7 @@ type MechanicRepository interface {
 	InsertRepair(ctx context.Context, session mongo.SessionContext, repair *Repair) error
 	GetMongoClient(ctx context.Context) *mongo.Client
 	CheckRepairExists(ctx context.Context, session mongo.SessionContext, repairID string) (bool, error)
+	CheckOutboxEventExists(ctx context.Context, session mongo.SessionContext, topic string, partition int32, offset int64) (bool, error)
 }
 
 // MongoRepository implements the MechanicRepository interface
@@ -244,6 +245,34 @@ func (r *MongoRepository) CheckRepairExists(ctx context.Context, session mongo.S
 	}
 	span.SetAttributes(
 		attribute.String("repairID", repairID),
+		attribute.Bool("exists", true),
+	)
+	return true, nil
+}
+
+// CheckOutboxEventExists checks if an outbox event exists by Kafka metadata
+func (r *MongoRepository) CheckOutboxEventExists(ctx context.Context, session mongo.SessionContext, topic string, partition int32, offset int64) (bool, error) {
+	_, span := otel.Tracer("mechanic-service").Start(ctx, "MongoCheckOutboxEventExists")
+	defer span.End()
+
+	var event OutboxEvent
+	err := r.OutboxCollection.FindOne(session, bson.M{
+		"kafka_topic":     topic,
+		"kafka_partition": partition,
+		"kafka_offset":    offset,
+	}).Decode(&event)
+	if err == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to check outbox event existence")
+		return false, fmt.Errorf("failed to check outbox event existence: %v", err)
+	}
+	span.SetAttributes(
+		attribute.String("kafka_topic", topic),
+		attribute.Int("kafka_partition", int(partition)),
+		attribute.Int64("kafka_offset", offset),
 		attribute.Bool("exists", true),
 	)
 	return true, nil

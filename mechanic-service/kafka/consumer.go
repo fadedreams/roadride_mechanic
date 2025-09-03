@@ -156,7 +156,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 				}
 			}
 
-			// Store event in outbox
+			// Start a transaction to check and save outbox event
 			session, err := c.repo.GetMongoClient(ctx).StartSession()
 			if err != nil {
 				span.RecordError(err)
@@ -177,17 +177,32 @@ func (c *Consumer) Start(ctx context.Context) error {
 			}
 
 			err = mongo.WithSession(ctx, session, func(sc mongo.SessionContext) error {
+				// Check if outbox event already exists
+				exists, err := c.repo.CheckOutboxEventExists(ctx, sc, *msg.TopicPartition.Topic, msg.TopicPartition.Partition, int64(msg.TopicPartition.Offset))
+				if err != nil {
+					c.logger.Error("Failed to check outbox event existence", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "error", err, "app", "mechanic-service")
+					return fmt.Errorf("failed to check outbox event existence: %w", err)
+				}
+				if exists {
+					c.logger.Info("Outbox event already exists, skipping", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "app", "mechanic-service")
+					return nil
+				}
+
+				// Save the outbox event
 				outboxEvent := &domain.OutboxEvent{
-					ID:        primitive.NewObjectID().Hex(),
-					EventType: "RepairEvent",
-					Payload:   msg.Value,
-					CreatedAt: time.Now(),
-					Processed: false,
+					ID:             primitive.NewObjectID().Hex(),
+					EventType:      "RepairEvent",
+					Payload:        msg.Value,
+					CreatedAt:      time.Now(),
+					Processed:      false,
+					KafkaTopic:     *msg.TopicPartition.Topic,
+					KafkaPartition: msg.TopicPartition.Partition,
+					KafkaOffset:    int64(msg.TopicPartition.Offset),
 				}
 				if err := c.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
 					return fmt.Errorf("failed to save outbox event: %w", err)
 				}
-				c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "app", "mechanic-service")
+				c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "topic", outboxEvent.KafkaTopic, "partition", outboxEvent.KafkaPartition, "offset", outboxEvent.KafkaOffset, "app", "mechanic-service")
 				return nil
 			})
 			if err != nil {

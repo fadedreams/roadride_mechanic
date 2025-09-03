@@ -44,11 +44,13 @@ type MechanicInfo struct {
 
 // OutboxEvent represents an event in the outbox collection
 type OutboxEvent struct {
-	ID          string     `bson:"_id" json:"id"`
-	EventType   string     `bson:"event_type" json:"event_type"`
-	Payload     []byte     `bson:"payload" json:"payload"`
-	CreatedAt   time.Time  `bson:"created_at" json:"created_at"`
-	Processed   bool       `bson:"processed" json:"processed"`
-	ProcessedAt *time.Time `bson:"processed_at" json:"processed_at,omitempty"`
+	ID             string     `bson:"_id" json:"id"`
+	EventType      string     `bson:"event_type" json:"event_type"`
+	Payload        []byte     `bson:"payload" json:"payload"`
+	CreatedAt      time.Time  `bson:"created_at" json:"created_at"`
+	Processed      bool       `bson:"processed" json:"processed"`
+	ProcessedAt    *time.Time `bson:"processed_at" json:"processed_at,omitempty"`
+	KafkaTopic     string     `bson:"kafka_topic" json:"kafka_topic"`
+	KafkaPartition int32      `bson:"kafka_partition" json:"kafka_partition"`
+	KafkaOffset    int64      `bson:"kafka_offset" json:"kafka_offset"`
 }
-

@@ -32,3 +32,7 @@ rs.initiate({
     { _id: 0, host: "mongodb:27017" }
   ]
 });
+db.mechanic_outbox.createIndex(
+  { "kafka_topic": 1, "kafka_partition": 1, "kafka_offset": 1 },
+  { unique: true }
+)
