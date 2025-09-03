@@ -211,3 +211,4 @@ func (p *OutboxProcessor) processOutboxEvents(ctx context.Context) error {
 	)
 	return nil
 }
+

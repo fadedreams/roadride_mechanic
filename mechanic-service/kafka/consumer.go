@@ -247,3 +247,4 @@ func (c *Consumer) Close() {
 	c.logger.Info("Closing Kafka consumer", "app", "mechanic-service")
 	c.kafkaConsumer.Close()
 }
+
