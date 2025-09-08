@@ -12,7 +12,7 @@ services:
       - app-network
     depends_on:
       repair-service:
-        condition: service_started  # Or 'healthy' if you add healthchecks
+        condition: service_started
       mechanic-service:
         condition: service_started
       consul:
