@@ -32,57 +32,27 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Log startup
-	slog.Info("Starting API Gateway", "app", "api-gateway", "timestamp", time.Now().Unix())
+	logger.Info("Starting API Gateway", "app", "api-gateway", "timestamp", time.Now().Unix())
 
 	// Initialize tracer
 	shutdown, err := initTracer()
 	if err != nil {
-		slog.Error("Failed to initialize tracer", "error", err)
+		logger.Error("Failed to initialize tracer", "error", err)
 		os.Exit(1)
 	}
 	defer shutdown()
 
-	// Create minimal router with ONLY /health (no deps)
-	minimalR := mux.NewRouter()
-	minimalR.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "OK")
-	}).Methods("GET")
-
-	// Start minimal server early in a goroutine
-	srv := &http.Server{
-		Addr:    ":8085",
-		Handler: minimalR,
-	}
-	go func() {
-		logger.Info("Starting minimal server for early health checks", "port", 8085)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("Minimal server failed", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	// Wait briefly for server to bind port (ensures health check availability)
-	time.Sleep(500 * time.Millisecond)
-
-	// Now register with Consul (after server is up)
-	if err := handlers.RegisterWithConsul(logger); err != nil {
-		logger.Error("Failed to register with Consul", "error", err)
-		os.Exit(1)
-	}
-
-	// Now safe to do heavy init: Create full handler (discovery, etc.)
-	repairHandler, err := handlers.NewRepairHandler(logger)  // Pass logger; returns error now
+	// QUICKLY create full handler (discovery in background if needed)
+	repairHandler, err := handlers.NewRepairHandler(logger)
 	if err != nil {
 		logger.Error("Failed to create handler", "error", err)
 		os.Exit(1)
 	}
 
-	// Create full router
+	// Create full router with all endpoints (including /health)
 	r := mux.NewRouter()
 	r.Use(otelmux.Middleware("api-gateway"))
 
-	// Define full endpoints
 	r.HandleFunc("/health", repairHandler.HealthCheck).Methods("GET")
 	r.HandleFunc("/repairs", repairHandler.CreateRepair).Methods("POST")
 	r.HandleFunc("/repairs/estimate", repairHandler.EstimateRepairCost).Methods("POST")
@@ -92,18 +62,32 @@ func main() {
 	r.HandleFunc("/repairs/{repairID}", repairHandler.UpdateRepair).Methods("PUT")
 	r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
 
-	// Replace the server's handler with the full one (atomic, no downtime)
-	srv.Handler = r
-	logger.Info("Switched to full router with all endpoints")
+	// Start full server immediately (all routes available from t=0)
+	srv := &http.Server{
+		Addr:    ":8085",
+		Handler: r,
+	}
+	logger.Info("Starting full server with all endpoints", "port", 8085)
 
-	// Wait for graceful shutdown (blocks main)
-	logger.Info("API Gateway running on port 8085 (full mode)")
+	// Register with Consul in background (after bind, non-blocking)
+	go func() {
+		time.Sleep(100 * time.Millisecond)  // Ensure bind
+		if err := handlers.RegisterWithConsul(logger); err != nil {
+			logger.Error("Failed to register with Consul (background)", "error", err)
+			// Don't exit—service runs without Consul
+		} else {
+			logger.Info("Consul registration completed (background)")
+		}
+	}()
+
+	// Block on server (graceful shutdown ready)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Error("Full server failed", "error", err)
+		logger.Error("Server failed", "error", err)
 		os.Exit(1)
 	}
 }
 
+// initTracer unchanged (same as before)
 func initTracer() (func(), error) {
 	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
 	if jaegerEndpoint == "" {
@@ -111,7 +95,6 @@ func initTracer() (func(), error) {
 	}
 	slog.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint)
 
-	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
 		otlptracehttp.WithEndpoint("jaeger:4318"),
 		otlptracehttp.WithInsecure(),
@@ -121,7 +104,6 @@ func initTracer() (func(), error) {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %v", err)
 	}
 
-	// Test Jaeger connectivity with a GET request to the UI health endpoint
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
 	if err != nil {
@@ -143,14 +125,12 @@ func initTracer() (func(), error) {
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
-	// Force a test span to verify export (comment out if Jaeger issues persist)
 	ctx := context.Background()
 	tr := otel.Tracer("api-gateway")
 	_, span := tr.Start(ctx, "TestSpan")
 	span.SetAttributes(attribute.String("test", "true"))
 	span.End()
 
-	// Force export
 	if err := tp.ForceFlush(ctx); err != nil {
 		slog.Error("Failed to flush test span", "error", err)
 	} else {

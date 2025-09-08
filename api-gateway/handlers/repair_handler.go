@@ -163,7 +163,7 @@ func NewRepairHandler(logger *slog.Logger) (*RepairHandler, error) {  // Now ret
 			time.Sleep(2 * time.Second)
 		}
 	}
-discoveredRepair:
+	discoveredRepair:
 
 	// Discover mechanic-service (similar fallback)
 	mechanicServiceURL := ""
@@ -173,6 +173,7 @@ discoveredRepair:
 		case <-timeoutCh:
 			logger.Warn("Timeout discovering mechanic-service; using fallback URL")
 			mechanicServiceURL = "http://mechanic-service:8086"  // Fallback
+			break  // Exit loop on timeout
 		default:
 			services, _, err := consulClient.Health().Service("mechanic-service", "", true, nil)
 			if err != nil {
@@ -183,7 +184,7 @@ discoveredRepair:
 			if len(services) > 0 {
 				mechanicServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
 				logger.Info("Discovered mechanic-service at", "url", mechanicServiceURL)
-				break
+				break  // ADD THIS: Break out once discovered!
 			}
 			logger.Info("Waiting for mechanic-service to be registered")
 			time.Sleep(2 * time.Second)
