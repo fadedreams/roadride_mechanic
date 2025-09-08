@@ -75,8 +75,8 @@ type RepairHandler struct {
 	logger             *slog.Logger
 }
 
-// NewRepairHandler creates a new RepairHandler with Consul integration
-func NewRepairHandler() *RepairHandler {
+// RegisterWithConsul registers the API gateway service with Consul (called after server start)
+func RegisterWithConsul(logger *slog.Logger) error {
 	// Initialize Consul client
 	consulAddr := os.Getenv("CONSUL_ADDRESS")
 	if consulAddr == "" {
@@ -86,18 +86,10 @@ func NewRepairHandler() *RepairHandler {
 	consulConfig.Address = consulAddr
 	consulClient, err := api.NewClient(consulConfig)
 	if err != nil {
-		slog.Error("Failed to create Consul client", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create Consul client: %w", err)
 	}
 
-	// Get logger from logging package
-	logger, _, err := logging.NewLogger()
-	if err != nil {
-		slog.Error("Failed to initialize logger", "error", err)
-		os.Exit(1)
-	}
-
-	// Register service with Consul
+	// Register service with Consul (TCP check to avoid HTTP race)
 	serviceName := os.Getenv("SERVICE_NAME")
 	if serviceName == "" {
 		serviceName = "api-gateway"
@@ -113,24 +105,48 @@ func NewRepairHandler() *RepairHandler {
 		Port:    8085,
 		Address: "api-gateway",
 		Check: &api.AgentServiceCheck{
-			HTTP:     "http://api-gateway:8085/health",
+			TCP:      "api-gateway:8085",  // TCP: Verifies port open (passes immediately after ListenAndServe)
 			Interval: "10s",
-			Timeout:  "5s",
+			Timeout:  "3s",               // Shorter for TCP
 		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
-		logger.Error("Failed to register with Consul", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to register with Consul: %w", err)
+	}
+	logger.Info("Registered with Consul (post-startup)", "serviceID", serviceID)
+	return nil
+}
+
+// NewRepairHandler creates a new RepairHandler with Consul integration (no registration here)
+func NewRepairHandler(logger *slog.Logger) (*RepairHandler, error) {  // Now returns error
+	if logger == nil {
+		var err error
+		logger, _, err = logging.NewLogger()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize logger: %w", err)
+		}
+	}
+
+	// Initialize Consul client (for discovery only)
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Consul client: %w", err)
 	}
 
 	// Discover repair-service
 	repairServiceURL := ""
-	timeoutCh := time.After(60 * time.Second)  // Renamed for clarity
+	timeoutCh := time.After(60 * time.Second)
 	for {
 		select {
 		case <-timeoutCh:
-			logger.Error("Timeout discovering repair-service after 60s")
-			os.Exit(1)  // Or return an error and handle in main.go
+			logger.Warn("Timeout discovering repair-service; using fallback URL")
+			repairServiceURL = "http://repair-service:8087"  // Fallback to hardcoded
 		default:
 			services, _, err := consulClient.Health().Service("repair-service", "", true, nil)
 			if err != nil {
@@ -141,22 +157,22 @@ func NewRepairHandler() *RepairHandler {
 			if len(services) > 0 {
 				repairServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
 				logger.Info("Discovered repair-service at", "url", repairServiceURL)
-				goto discoveredRepair  // Break out of select/for
+				goto discoveredRepair
 			}
 			logger.Info("Waiting for repair-service to be registered")
 			time.Sleep(2 * time.Second)
 		}
 	}
-	discoveredRepair:  // Label to jump to after discovery
+discoveredRepair:
 
-	// Similarly for mechanic-service (add timeoutCh := time.After(60 * time.Second))
+	// Discover mechanic-service (similar fallback)
 	mechanicServiceURL := ""
-	timeoutCh = time.After(60 * time.Second)  // Reset timeout
+	timeoutCh = time.After(60 * time.Second)
 	for {
 		select {
 		case <-timeoutCh:
-			logger.Error("Timeout discovering mechanic-service after 60s")
-			os.Exit(1)
+			logger.Warn("Timeout discovering mechanic-service; using fallback URL")
+			mechanicServiceURL = "http://mechanic-service:8086"  // Fallback
 		default:
 			services, _, err := consulClient.Health().Service("mechanic-service", "", true, nil)
 			if err != nil {
@@ -167,21 +183,22 @@ func NewRepairHandler() *RepairHandler {
 			if len(services) > 0 {
 				mechanicServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
 				logger.Info("Discovered mechanic-service at", "url", mechanicServiceURL)
-				break  // Or use goto if preferred
+				break
 			}
 			logger.Info("Waiting for mechanic-service to be registered")
 			time.Sleep(2 * time.Second)
 		}
 	}
+
 	tracer := otel.Tracer("api-gateway")
 
-	// Create HTTP client with OpenTelemetry instrumentation
+	// Create HTTP client
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{},
 	}
 
-	return &RepairHandler{
+	h := &RepairHandler{
 		client:             client,
 		consulClient:       consulClient,
 		repairServiceURL:   repairServiceURL,
@@ -197,6 +214,8 @@ func NewRepairHandler() *RepairHandler {
 		tracer:  tracer,
 		logger:  logger,
 	}
+	logger.Info("Created RepairHandler", "repairURL", repairServiceURL, "mechanicURL", mechanicServiceURL)
+	return h, nil
 }
 
 // HealthCheck provides a health endpoint for Consul

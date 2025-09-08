@@ -42,16 +42,47 @@ func main() {
 	}
 	defer shutdown()
 
-	// Initialize handler
-	repairHandler := handlers.NewRepairHandler()
+	// Create minimal router with ONLY /health (no deps)
+	minimalR := mux.NewRouter()
+	minimalR.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "OK")
+	}).Methods("GET")
 
-	// Initialize router
+	// Start minimal server early in a goroutine
+	srv := &http.Server{
+		Addr:    ":8085",
+		Handler: minimalR,
+	}
+	go func() {
+		logger.Info("Starting minimal server for early health checks", "port", 8085)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Minimal server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait briefly for server to bind port (ensures health check availability)
+	time.Sleep(500 * time.Millisecond)
+
+	// Now register with Consul (after server is up)
+	if err := handlers.RegisterWithConsul(logger); err != nil {
+		logger.Error("Failed to register with Consul", "error", err)
+		os.Exit(1)
+	}
+
+	// Now safe to do heavy init: Create full handler (discovery, etc.)
+	repairHandler, err := handlers.NewRepairHandler(logger)  // Pass logger; returns error now
+	if err != nil {
+		logger.Error("Failed to create handler", "error", err)
+		os.Exit(1)
+	}
+
+	// Create full router
 	r := mux.NewRouter()
-
-	// Add OpenTelemetry middleware
 	r.Use(otelmux.Middleware("api-gateway"))
 
-	// Define endpoints
+	// Define full endpoints
 	r.HandleFunc("/health", repairHandler.HealthCheck).Methods("GET")
 	r.HandleFunc("/repairs", repairHandler.CreateRepair).Methods("POST")
 	r.HandleFunc("/repairs/estimate", repairHandler.EstimateRepairCost).Methods("POST")
@@ -61,10 +92,14 @@ func main() {
 	r.HandleFunc("/repairs/{repairID}", repairHandler.UpdateRepair).Methods("PUT")
 	r.HandleFunc("/ws", repairHandler.HandleWebSocket).Methods("GET")
 
-	// Start server
-	slog.Info("API Gateway running on port 8085")
-	if err := http.ListenAndServe(":8085", r); err != nil {
-		slog.Error("Failed to start server", "error", err)
+	// Replace the server's handler with the full one (atomic, no downtime)
+	srv.Handler = r
+	logger.Info("Switched to full router with all endpoints")
+
+	// Wait for graceful shutdown (blocks main)
+	logger.Info("API Gateway running on port 8085 (full mode)")
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("Full server failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -108,7 +143,7 @@ func initTracer() (func(), error) {
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
-	// Force a test span to verify export
+	// Force a test span to verify export (comment out if Jaeger issues persist)
 	ctx := context.Background()
 	tr := otel.Tracer("api-gateway")
 	_, span := tr.Start(ctx, "TestSpan")
