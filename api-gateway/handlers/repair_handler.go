@@ -125,40 +125,54 @@ func NewRepairHandler() *RepairHandler {
 
 	// Discover repair-service
 	repairServiceURL := ""
+	timeoutCh := time.After(60 * time.Second)  // Renamed for clarity
 	for {
-		services, _, err := consulClient.Health().Service("repair-service", "", true, nil)
-		if err != nil {
-			logger.Error("Failed to discover repair-service", "error", err)
+		select {
+		case <-timeoutCh:
+			logger.Error("Timeout discovering repair-service after 60s")
+			os.Exit(1)  // Or return an error and handle in main.go
+		default:
+			services, _, err := consulClient.Health().Service("repair-service", "", true, nil)
+			if err != nil {
+				logger.Error("Failed to discover repair-service", "error", err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			if len(services) > 0 {
+				repairServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
+				logger.Info("Discovered repair-service at", "url", repairServiceURL)
+				goto discoveredRepair  // Break out of select/for
+			}
+			logger.Info("Waiting for repair-service to be registered")
 			time.Sleep(2 * time.Second)
-			continue
 		}
-		if len(services) > 0 {
-			repairServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
-			logger.Info("Discovered repair-service at", "url", repairServiceURL)
-			break
-		}
-		logger.Info("Waiting for repair-service to be registered")
-		time.Sleep(2 * time.Second)
 	}
+	discoveredRepair:  // Label to jump to after discovery
 
-	// Discover mechanic-service
+	// Similarly for mechanic-service (add timeoutCh := time.After(60 * time.Second))
 	mechanicServiceURL := ""
+	timeoutCh = time.After(60 * time.Second)  // Reset timeout
 	for {
-		services, _, err := consulClient.Health().Service("mechanic-service", "", true, nil)
-		if err != nil {
-			logger.Error("Failed to discover mechanic-service", "error", err)
+		select {
+		case <-timeoutCh:
+			logger.Error("Timeout discovering mechanic-service after 60s")
+			os.Exit(1)
+		default:
+			services, _, err := consulClient.Health().Service("mechanic-service", "", true, nil)
+			if err != nil {
+				logger.Error("Failed to discover mechanic-service", "error", err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			if len(services) > 0 {
+				mechanicServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
+				logger.Info("Discovered mechanic-service at", "url", mechanicServiceURL)
+				break  // Or use goto if preferred
+			}
+			logger.Info("Waiting for mechanic-service to be registered")
 			time.Sleep(2 * time.Second)
-			continue
 		}
-		if len(services) > 0 {
-			mechanicServiceURL = fmt.Sprintf("http://%s:%d", services[0].Service.Address, services[0].Service.Port)
-			logger.Info("Discovered mechanic-service at", "url", mechanicServiceURL)
-			break
-		}
-		logger.Info("Waiting for mechanic-service to be registered")
-		time.Sleep(2 * time.Second)
 	}
-
 	tracer := otel.Tracer("api-gateway")
 
 	// Create HTTP client with OpenTelemetry instrumentation
@@ -210,7 +224,7 @@ func (h *RepairHandler) CreateRepair(w http.ResponseWriter, r *http.Request) {
 	span.SetAttributes(
 		attribute.String("userID", cost.UserID),
 		attribute.String("repairType", cost.RepairType),
-	)
+		)
 
 	body, err := json.Marshal(cost)
 	if err != nil {
@@ -287,7 +301,7 @@ func (h *RepairHandler) EstimateRepairCost(w http.ResponseWriter, r *http.Reques
 	span.SetAttributes(
 		attribute.String("userID", input.UserID),
 		attribute.String("repairType", input.RepairType),
-	)
+		)
 
 	body, err := json.Marshal(input)
 	if err != nil {
@@ -355,7 +369,7 @@ func (h *RepairHandler) GetRepairCost(w http.ResponseWriter, r *http.Request) {
 	span.SetAttributes(
 		attribute.String("costID", costID),
 		attribute.String("userID", userID),
-	)
+		)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", h.repairServiceURL+"/repairs/cost/"+costID+"?userID="+userID, nil)
 	if err != nil {
@@ -702,7 +716,7 @@ func (h *RepairHandler) broadcastStatusUpdate(update StatusUpdate) {
 		attribute.String("repairID", update.RepairID),
 		attribute.String("userID", update.UserID),
 		attribute.String("status", update.Status),
-	)
+		)
 
 	h.clientsMutex.Lock()
 	defer h.clientsMutex.Unlock()

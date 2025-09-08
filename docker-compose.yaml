@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api-gateway:
     build:
@@ -13,6 +11,10 @@ services:
     networks:
       - app-network
     depends_on:
+      repair-service:
+        condition: service_started  # Or 'healthy' if you add healthchecks
+      mechanic-service:
+        condition: service_started
       consul:
         condition: service_healthy
       jaeger:
@@ -44,11 +46,15 @@ services:
         condition: service_healthy
       logstash:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=mechanic-service
       - SERVICE_PORT=8086
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9094
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
 
   repair-service:
     build:
@@ -68,15 +74,18 @@ services:
         condition: service_healthy
       logstash:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       - MONGO_URI=mongodb://mongodb:27017/repairdb?replicaSet=rs0
       - CONSUL_ADDRESS=consul:8500
       - SERVICE_NAME=repair-service
       - SERVICE_PORT=8087
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9094
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
 
   mongodb:
-    image: mongo:7.0.14
+    image: mongo:8.0.14-rc0-noble
     container_name: mongodb
     ports:
       - "27017:27017"
@@ -181,7 +190,6 @@ services:
       retries: 10
       start_period: 30s
 
-
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.7.1
     container_name: filebeat
@@ -190,7 +198,7 @@ services:
       - api-gateway-logs:/var/log/api-gateway:ro
       - mechanic-service-logs:/var/log/mechanic-service:ro
       - repair-service-logs:/var/log/repair-service:ro
-      - kafka-data:/bitnami/kafka:ro  # Kafka logs
+      - kafka-data:/bitnami/kafka:ro
       - schema-registry-logs:/var/log/schema-registry:ro
       - kafka-ui-logs:/logs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -209,26 +217,30 @@ services:
   kafka:
     image: bitnami/kafka:3.6
     ports:
-      - "9092:9092"          # host → external listener
+      - "9092:9092"
     environment:
-      # — KRaft single‑node basics —
-      KAFKA_ENABLE_KRAFT: "yes"
-      KAFKA_KRAFT_CLUSTER_ID: "XqZrTh1yT8qXwjsn1a6L9A"
-      KAFKA_CFG_NODE_ID: "1"
-      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
-      # — Listeners —
-      KAFKA_CFG_LISTENERS: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
-      ALLOW_PLAINTEXT_LISTENER: "yes"
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_KRAFT_CLUSTER_ID=XqZrTh1yT8qXwjsn1a6L9A
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9094,EXTERNAL://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "kafka:9094", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.5.0
@@ -237,11 +249,17 @@ services:
     ports:
       - "8081:8081"
     environment:
-      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
-      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka:9094"
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=PLAINTEXT://kafka:9094
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -251,12 +269,80 @@ services:
     ports:
       - "8080:8080"
     environment:
-      KAFKA_CLUSTERS_0_NAME: "dev"
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8081"
-      AUTH_TYPE: "DISABLED"
+      - KAFKA_CLUSTERS_0_NAME=dev
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9094
+      - KAFKA_CLUSTERS_0_SCHEMAREGISTRY=http://schema-registry:8081
+      - AUTH_TYPE=DISABLED
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      - CONNECT_BOOTSTRAP_SERVERS=kafka:9094
+      - CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect
+      - CONNECT_REST_PORT=8083
+      - CONNECT_GROUP_ID=connect-group
+      - CONNECT_CONFIG_STORAGE_TOPIC=connect-configs
+      - CONNECT_OFFSET_STORAGE_TOPIC=connect-offsets
+      - CONNECT_STATUS_STORAGE_TOPIC=connect-statuses
+      - CONNECT_KEY_CONVERTER=io.confluent.connect.avro.AvroConverter
+      - CONNECT_VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter
+      - CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CONNECT_LOG4J_ROOT_LOGLEVEL=INFO
+      - CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_PLUGIN_PATH=/usr/share/java,/usr/share/confluent-hub-components
+    volumes:
+      - ./kafka-connect-plugins:/usr/share/confluent-hub-components
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8088:8088"
+    environment:
+      - KSQL_LISTENERS=http://0.0.0.0:8088
+      - KSQL_BOOTSTRAP_SERVERS=kafka:9094
+      - KSQL_KSQL_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE=true
+      - KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE=true
+      - KSQL_KSQL_STREAMS_AUTO_OFFSET_RESET=earliest
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
 networks:
   app-network:

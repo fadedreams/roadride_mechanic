@@ -18,6 +18,7 @@ import (
 	"log/slog"
 
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/consul/api"  // Add this import
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -130,6 +131,46 @@ func main() {
 
 	// Log startup
 	logger.Info("Starting repair-service", "app", "repair-service", "timestamp", time.Now().Unix())
+
+	// Initialize Consul client and register service
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		logger.Error("Failed to create Consul client", "error", err, "app", "repair-service")
+		os.Exit(1)
+	}
+	logger.Info("Created Consul client", "address", consulAddr, "app", "repair-service")
+
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "repair-service"
+	}
+	servicePort := os.Getenv("SERVICE_PORT")
+	if servicePort == "" {
+		servicePort = "8087"
+	}
+	serviceID := serviceName + "-" + servicePort
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8087,
+		Address: "repair-service",
+		Check: &api.AgentServiceCheck{
+			HTTP:     "http://repair-service:8087/health",
+			Interval: "10s",
+			Timeout:  "5s",
+		},
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		logger.Error("Failed to register with Consul", "error", err, "app", "repair-service")
+		os.Exit(1)
+	}
+	logger.Info("Registered with Consul", "serviceID", serviceID, "app", "repair-service")
 
 	// Initialize tracer
 	shutdown, err := initTracer(logger)

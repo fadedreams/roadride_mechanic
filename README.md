@@ -31,3 +31,6 @@ curl http://localhost:8500/v1/health/service/repair-service
 grpcurl -plaintext localhost:50051 repair.RepairService/StreamAllRepairs
 ```
 ```
+
+
+curl -v http://localhost:8085/health

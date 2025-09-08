@@ -1,4 +1,3 @@
-use repairdb
 rs.initiate({
   _id: "rs0",
   members: [
