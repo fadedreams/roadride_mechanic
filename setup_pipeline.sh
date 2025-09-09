@@ -122,7 +122,7 @@ cat <<EOF > sample_data.json
 {"id":"event3","user_id":"user123","status":"PENDING","repair_type":"TIRES","total_price":200.0,"user_location":{"longitude":40.7128,"latitude":-74.0060},"mechanics":[{"id":"mech3","name":"Bob Wilson","location":{"longitude":40.7100,"latitude":-74.0070},"distance":1.5}]}
 EOF
 
-# Produce sample data
+# Produce sample data(optional)
 while IFS= read -r line; do
   echo "$line" | docker exec -i $KAFKA_CONNECT_CONTAINER kafka-avro-console-producer \
     --broker-list kafka:9094 \
