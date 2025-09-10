@@ -6,10 +6,20 @@ metadata:
 spec:
   members: 1
   type: ReplicaSet
-  version: "7.0.12"  # Use stable version; 8.0.14-rc0-noble may not be supported
+  version: "7.0.12"  # Stable version
+  users:
+    - name: admin-user
+      db: admin
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      passwordSecretRef:
+        name: admin-user-password  # Reference to a secret (created below)
   security:
     authentication:
-      modes: []  # Empty for no auth; use ["SCRAM"] for prod
+      modes: []  # No authentication
   additionalMongodConfig:
     replSetName: rs0
   statefulSet:
