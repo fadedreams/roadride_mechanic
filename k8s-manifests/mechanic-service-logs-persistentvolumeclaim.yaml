@@ -7,7 +7,7 @@ metadata:
   namespace: roadride
 spec:
   accessModes:
-    - ReadOnlyMany
+    - ReadWriteOnce  # Changed from ReadOnlyMany
   resources:
     requests:
       storage: 1Gi
