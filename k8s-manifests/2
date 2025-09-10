@@ -1,0 +1,14 @@
+Step 5: Verify
+
+Pods: kubectl get pods -n roadride -w
+Services: kubectl get svc -n roadride (confirm strimzi-kafka-bootstrap, community-operator-mongodb-svc, etc.)
+MongoDB: kubectl exec -it mongodb-replica-0 -n roadride -- mongosh repairdb --eval "db.mechanics.find()"
+Kafka: kubectl exec -it kafka-kafka-0 -n roadride -- kafka-topics --bootstrap-server localhost:9092 --list
+
+Step 6: Test
+
+Port-forward: kubectl port-forward svc/api-gateway 8085:8085 -n roadride &
+Run README curls (e.g., curl -X POST http://localhost:8085/repairs/estimate -H "Content-Type: application/json" -d '{"repairType":"flat_tire","userID":"test-user1","location":{"longitude":13.4,"latitude":52.52}}')
+Jaeger: kubectl port-forward svc/jaeger-operator-jaeger-query 16686:16686 -n roadride & → http://localhost:16686
+Kibana: kubectl port-forward svc/kibana-kb-http 5601:5601 -n roadride & → http://localhost:5601
+Consul: kubectl port-forward svc/consul-server 8500:8500 -n roadride & → http://localhost:8500

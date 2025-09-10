@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: roadride
+  annotations:
+    kompose.cmd: kompose convert -f docker-compose.yaml --out k8s-manifests/
+    kompose.version: 1.37.0 (fb0539e64)
+  labels:
+    io.kompose.service: filebeat
+spec:
+  selector:
+    matchLabels:
+      io.kompose.service: filebeat
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f docker-compose.yaml --out k8s-manifests/
+        kompose.version: 1.37.0 (fb0539e64)
+      labels:
+        io.kompose.service: filebeat
+    spec:
+      containers:
+      - image: docker.elastic.co/beats/filebeat:8.7.1
+        livenessProbe:
+          exec:
+            command:
+            - filebeat test output
+          failureThreshold: 10
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        name: filebeat
+        volumeMounts:
+        - mountPath: /usr/share/filebeat/filebeat.yml
+          name: filebeat-cm0
+          readOnly: true
+          subPath: filebeat.yml
+        - mountPath: /var/log/api-gateway
+          name: api-gateway-logs
+          readOnly: true
+        - mountPath: /var/log/mechanic-service
+          name: mechanic-service-logs
+          readOnly: true
+        - mountPath: /var/log/repair-service
+          name: repair-service-logs
+          readOnly: true
+      volumes:
+      - configMap:
+          items:
+          - key: filebeat.yml
+            path: filebeat.yml
+          name: filebeat-cm0
+        name: filebeat-cm0
+      - name: api-gateway-logs
+        persistentVolumeClaim:
+          claimName: api-gateway-logs
+          readOnly: true
+      - name: mechanic-service-logs
+        persistentVolumeClaim:
+          claimName: mechanic-service-logs
+          readOnly: true
+      - name: repair-service-logs
+        persistentVolumeClaim:
+          claimName: repair-service-logs
+          readOnly: true

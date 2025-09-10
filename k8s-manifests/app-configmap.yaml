@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: roadride
+data:
+  MONGO_URI: "mongodb://community-operator-mongodb-svc.roadride.svc.cluster.local:27017/repairdb?replicaSet=rs0"
+  KAFKA_BOOTSTRAP_SERVERS: "strimzi-kafka-bootstrap.roadride.svc.cluster.local:9092"
+  SCHEMA_REGISTRY_URL: "http://strimzi-schema-registry.roadride.svc.cluster.local:8081"
+  CONSUL_ADDRESS: "consul-server.roadride.svc.cluster.local:8500"
+  JAEGER_ENDPOINT: "http://jaeger-operator-jaeger-query.roadride.svc.cluster.local:4318/v1/traces"

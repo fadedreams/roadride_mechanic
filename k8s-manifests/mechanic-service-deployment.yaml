@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f docker-compose.yaml --out k8s-manifests/
+    kompose.version: 1.37.0 (fb0539e64)
+  labels:
+    io.kompose.service: mechanic-service
+  name: mechanic-service
+  namespace: roadride
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: mechanic-service
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f docker-compose.yaml --out k8s-manifests/
+        kompose.version: 1.37.0 (fb0539e64)
+      labels:
+        io.kompose.service: mechanic-service
+    spec:
+      containers:
+        - envFrom:
+            - configMapRef:
+                name: app-config
+          image: mechanic-service
+          name: mechanic-service
+          ports:
+            - containerPort: 8086
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - mountPath: /var/log/mechanic-service
+              name: mechanic-service-logs
+      restartPolicy: Always
+      volumes:
+        - name: mechanic-service-logs
+          persistentVolumeClaim:
+            claimName: mechanic-service-logs

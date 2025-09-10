@@ -1,0 +1,22 @@
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+wget https://get.helm.sh/helm-v3.19.0-rc.1-linux-amd64.tar.gz
+tar -zxvf helm-v3.19.0-rc.1-linux-amd64.tar.gz
+mv linux-amd64/helm /usr/local/bin/helm
+
+sudo apt install -y docker.io -y
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER && newgrp docker
+adduser m
+vi /etc/sudoers
+
+eval $(minikube docker-env)
+minikube start
+
+export https_proxy=http://109.248.161.147:8888
+export http_proxy=http://109.248.161.147:8888
