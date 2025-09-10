@@ -6,23 +6,31 @@ metadata:
 spec:
   members: 1
   type: ReplicaSet
-  version: "8.0.14-rc0-noble"
+  version: "7.0.12"  # Use stable version; 8.0.14-rc0-noble may not be supported
   security:
     authentication:
-      enabled: false
-  persistence:
-    storageClass: standard
-    accessMode: ReadWriteOnce
-    size: 10Gi
+      modes: []  # Empty for no auth; use ["SCRAM"] for prod
   additionalMongodConfig:
     replSetName: rs0
-  podSpec:
-    containers:
-    - name: mongod
-      volumeMounts:
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: mongodb
+            volumeMounts:
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+      volumeClaimTemplates:
+      - metadata:
+          name: data-volume
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+      volumes:
       - name: init-scripts
-        mountPath: /docker-entrypoint-initdb.d
-    volumes:
-    - name: init-scripts
-      configMap:
-        name: mongodb-init
+        configMap:
+          name: mongodb-init
