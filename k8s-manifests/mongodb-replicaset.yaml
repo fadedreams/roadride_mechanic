@@ -20,7 +20,7 @@ spec:
           db: admin
       passwordSecretRef:
         name: admin-user-password
-      scramCredentialsSecretName: admin-user-scram  # Explicitly specify a valid secret name
+      scramCredentialsSecretName: admin-user-scram  # Explicitly define a valid secret name
   additionalMongodConfig:
     replSetName: rs0
   statefulSet:
