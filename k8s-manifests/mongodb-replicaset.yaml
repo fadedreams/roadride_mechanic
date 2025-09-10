@@ -7,16 +7,6 @@ spec:
   members: 1
   type: ReplicaSet
   version: "7.0.12"  # Stable version
-  users:
-    - name: admin-user
-      db: admin
-      roles:
-        - name: clusterAdmin
-          db: admin
-        - name: userAdminAnyDatabase
-          db: admin
-      passwordSecretRef:
-        name: admin-user-password  # Reference to a secret (created below)
   security:
     authentication:
       modes: []  # No authentication
