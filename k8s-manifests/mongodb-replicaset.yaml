@@ -10,6 +10,17 @@ spec:
   security:
     authentication:
       modes: []  # No authentication
+  users:
+    - name: admin-user
+      db: admin
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      passwordSecretRef:
+        name: admin-user-password
+      scramCredentialsSecretName: admin-user-scram  # Explicitly specify a valid secret name
   additionalMongodConfig:
     replSetName: rs0
   statefulSet:
