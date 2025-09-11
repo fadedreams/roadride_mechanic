@@ -1,0 +1,41 @@
+helm install mongodb bitnami/mongodb --namespace roadride -f mongodb-values.yaml
+
+kubectl get sts -n roadride  # mongodb-mongodb 1/1
+kubectl get pods -n roadride -w  # Watch for mongodb-mongodb-0 1/1 Running
+kubectl get pvc -n roadride  # data-mongodb-mongodb-0 Bound 2Gi RWO standard
+
+export MONGODB_ROOT_PASSWORD=$(kubectl get secret --namespace roadride mongodb -o jsonpath="{.data.mongodb-root-password}" | base64 -d)
+echo $MONGODB_ROOT_PASSWORD  # "password"
+
+------install mongosh
+sudo apt update
+sudo apt install -y gnupg
+
+curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
+sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg \
+--dearmor \
+--yes
+
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse" | \
+sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+
+sudo apt update
+sudo apt install -y mongodb-mongosh
+mongosh --version
+---------
+
+kubectl exec -it mongodb-mongodb-0 -n roadride -- mongosh admin -u root -p password --eval "rs.status()"
+
+kubectl port-forward --namespace roadride svc/mongodb-mongodb 27017:27017 &
+mongosh --host 127.0.0.1 --port 27017 --authenticationDatabase admin -u root -p password --eval "rs.status()"
+# Stop: fg; kill %1
+
+#Run RS Status:
+mongosh --host 127.0.0.1 --port 27017 --authenticationDatabase admin -u root -p password --eval "rs.status()"
+
+#Test Data Insertion (verify replication to secondary):
+mongosh --host 127.0.0.1 --port 27017 --authenticationDatabase admin -u root -p password --eval "use repairdb; db.mechanics.insertOne({name: 'test', skill: 'tires'})"
+
+#Then query secondary (port-forward to specific pod if needed):
+kubectl port-forward --namespace roadride pod/mongodb-1 27018:27017 &
+mongosh --host 127.0.0.1 --port 27018 --authenticationDatabase admin -u root -p password --eval "use repairdb; db.mechanics.find()"

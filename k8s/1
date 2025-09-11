@@ -21,67 +21,8 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
   $ helm status consul --namespace roadride
   $ helm get all consul --namespace roadride
 
-#helm repo add mongodb https://mongodb.github.io/helm-charts
-#helm repo update
-#helm install community-operator mongodb/community-operator --namespace roadride
-#kubectl wait --for=condition=Available deployment/community-operator -n roadride --timeout=300s
 
--------------------
-m@server-o7x4mf:~/roadride_mechanic/k8s$ helm install mongodb bitnami/mongodb --namespace roadride \
-  --set mongodbRootPassword=password \
-  --set mongodb.architecture=replicaset \
-  --set mongodb.replica.replicaCount=1 \
-  --set mongodb.replica.replicaSetName=rs0 \
-  --set mongodb.persistence.enabled=true \
-  --set mongodb.persistence.size=2Gi \
-  --set mongodb.persistence.storageClass=standard \
-  --set mongodb.resources.requests.cpu=250m \
-  --set mongodb.resources.requests.memory=512Mi \
-  --set mongodb.resources.limits.cpu=500m \
-  --set mongodb.resources.limits.memory=1Gi
-NAME: mongodb
-LAST DEPLOYED: Thu Sep 11 14:23:19 2025
-NAMESPACE: roadride
-STATUS: deployed
-REVISION: 1
-TEST SUITE: None
-NOTES:
-CHART NAME: mongodb
-CHART VERSION: 16.5.45
-APP VERSION: 8.0.13
 
-⚠ WARNING: Since August 28th, 2025, only a limited subset of images/charts are available for free.
-    Subscribe to Bitnami Secure Images to receive continued support and security updates.
-    More info at https://bitnami.com and https://github.com/bitnami/containers/issues/83267
-
-** Please be patient while the chart is being deployed **
-
-MongoDB&reg; can be accessed on the following DNS name(s) and ports from within your cluster:
-
-    mongodb.roadride.svc.cluster.local
-
-To get the root password run:
-
-    export MONGODB_ROOT_PASSWORD=$(kubectl get secret --namespace roadride mongodb -o jsonpath="{.data.mongodb-root-password}" | base64 -d)
-
-To connect to your database, create a MongoDB&reg; client container:
-
-    kubectl run --namespace roadride mongodb-client --rm --tty -i --restart='Never' --env="MONGODB_ROOT_PASSWORD=$MONGODB_ROOT_PASSWORD" --image docker.io/bitnami/mongodb:8.0.13-debian-12-r0 --command -- bash
-
-Then, run the following command:
-    mongosh admin --host "mongodb" --authenticationDatabase admin -u $MONGODB_ROOT_USER -p $MONGODB_ROOT_PASSWORD
-
-To connect to your database from outside the cluster execute the following commands:
-
-    kubectl port-forward --namespace roadride svc/mongodb 27017:27017 &
-    mongosh --host 127.0.0.1 --authenticationDatabase admin -p $MONGODB_ROOT_PASSWORD
-
-WARNING: There are "resources" sections in the chart not set. Using "resourcesPreset" is not recommended for production. For production installations, please set the following values according to your workload needs:
-  - arbiter.resources
-  - resources
-+info https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-m@server-o7x4mf:~/roadride_mechanic/k8s$ 
---------------------
 helm repo add strimzi https://strimzi.io/charts/
 helm repo update
 helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride
