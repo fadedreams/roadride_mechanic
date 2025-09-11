@@ -1,0 +1,28 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb-replica
+  namespace: roadride
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "8.0.14-rc0-noble"
+  security:
+    authentication:
+      enabled: false
+  persistence:
+    storageClass: standard
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  additionalMongodConfig:
+    replSetName: rs0
+  podSpec:
+    containers:
+    - name: mongod
+      volumeMounts:
+      - name: init-scripts
+        mountPath: /docker-entrypoint-initdb.d
+    volumes:
+    - name: init-scripts
+      configMap:
+        name: mongodb-init

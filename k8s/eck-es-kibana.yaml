@@ -1,0 +1,49 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+  namespace: roadride
+spec:
+  version: 8.7.1
+  nodeSets:
+  - name: default
+    count: 1
+    config:
+      node.store.allow_mmap: false
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana
+  namespace: roadride
+spec:
+  version: 8.7.1
+  count: 1
+  elasticsearchRef:
+    name: elasticsearch
+---
+apiVersion: logstash.k8s.elastic.co/v1alpha1
+kind: Logstash
+metadata:
+  name: logstash
+  namespace: roadride
+spec:
+  version: 8.7.1
+  count: 1
+  elasticsearchRef:
+    name: elasticsearch
+  config:
+    pipelines:
+    - config: | 
+        input { beats { port => 5044 } }
+        filter { json { source => "message" } }
+        output { elasticsearch { hosts => ["${ELASTIC_HOST}"] index => "myapp-logs-%{+YYYY.MM.dd}" } }

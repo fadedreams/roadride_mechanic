@@ -1,0 +1,62 @@
+eval $(minikube docker-env)
+kubectl create namespace roadride
+kubectl config set-context --current --namespace=roadride
+
+docker build -t api-gateway:latest ./api-gateway
+docker build -t repair-service:latest ./repair-service
+docker build -t mechanic-service:latest ./mechanic-service
+
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm repo update
+helm install consul hashicorp/consul --version 1.8.0 --set server.replicas=1 --set server.bootstrapExpect=1 --set global.name=consul --namespace roadride
+kubectl wait --for=condition=Available deployment/consul-server -n roadride --timeout=300s
+
+  $ helm status consul --namespace roadride
+  $ helm get all consul --namespace roadride
+
+helm repo add mongodb https://mongodb.github.io/helm-charts
+helm repo update
+helm install community-operator mongodb/community-operator --namespace roadride
+kubectl wait --for=condition=Available deployment/community-operator -n roadride --timeout=300s
+
+helm repo add strimzi https://strimzi.io/charts/
+helm repo update
+helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride
+kubectl wait --for=condition=Available deployment/strimzi-cluster-operator -n roadride --timeout=300s
+
+helm repo add elastic https://helm.elastic.co
+helm repo update
+helm install elastic-operator elastic/eck-operator --namespace roadride
+kubectl wait --for=condition=Available deployment/elastic-operator -n roadride --timeout=300s
+
+#Jaeger Operator Helm chart depends on cert-manager Custom Resource Definitions (CRDs)
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
+kubectl get pods -n cert-manager
+
+helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+helm repo update
+helm install jaeger-operator jaegertracing/jaeger-operator --namespace roadride
+kubectl wait --for=condition=Available deployment/jaeger-operator -n roadride --timeout=300s
+
+kubectl apply -f k8s/app-configmap.yaml
+
+kubectl apply -f k8s/mongodb-init-configmap.yaml
+kubectl apply -f k8s/mongodb-replicaset.yaml
+kubectl wait --for=condition=Available sts/mongodb-replica -n roadride --timeout=300s
+
+
+kubectl apply -f k8s/kafka-cluster.yaml
+kubectl wait --for=condition=Ready pod/kafka-kafka-0 -n roadride --timeout=300s
+
+kubectl apply -f k8s/kafka-addons.yaml
+
+kubectl apply -f k8s/eck-es-kibana.yaml
+kubectl wait --for=condition=Available elasticsearch/elasticsearch -n roadride --timeout=300s
+
+kubectl apply -f k8s/jaeger-cr.yaml
+kubectl wait --for=condition=Available deployment/jaeger-all-in-one -n roadride --timeout=300s
+
+kubectl apply -f k8s/filebeat-cm0-configmap.yaml
+kubectl apply -f k8s/filebeat-daemonset.yaml
