@@ -26,8 +26,10 @@ helm repo update
 helm install community-operator mongodb/community-operator --namespace roadride
 kubectl wait --for=condition=Available deployment/community-operator -n roadride --timeout=300s
 
+  kubectl apply -f mongodb-rbac.yaml -n roadride
   kubectl apply -f mongodb-admin-secret.yaml -n roadride
-  kubectl apply -f mongodb-replica-set.yaml -n roadride
+  #kubectl apply -f mongodb-replica-set.yaml -n roadride
+  kubectl apply -f mongodb-replica-set-minimal.yaml -n roadride
   kubectl get pvc -n roadride
 
 helm repo add strimzi https://strimzi.io/charts/
