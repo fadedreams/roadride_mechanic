@@ -23,13 +23,13 @@ spec:
         - name: userAdminAnyDatabase
           db: admin
       scramCredentialsSecretName: repairdb-rs-root-scram  # Operator auto-creates this
-  # No statefulSet overrides—let operator default (adds agent, low resources)
-  volumeClaimTemplate:  # Use singular (operator default; rename from plural)
-    metadata:
-      name: mongodbdata
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 2Gi
-      storageClassName: standard
+  # Use plural array for templates (operator defaults to low CPU ~100-250m per container)
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodbdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+        storageClassName: standard
