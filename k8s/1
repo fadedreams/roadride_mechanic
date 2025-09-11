@@ -1,5 +1,7 @@
 eval $(minikube docker-env)
 minikube start
+minikube start --memory=7500
+minikube delete --profile=minikube
 minikube status
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride
@@ -26,7 +28,7 @@ kubectl wait --for=condition=Available deployment/community-operator -n roadride
 
   kubectl apply -f mongodb-admin-secret.yaml -n roadride
   kubectl apply -f mongodb-replica-set.yaml -n roadride
-kubectl get pvc -n roadride
+  kubectl get pvc -n roadride
 
 helm repo add strimzi https://strimzi.io/charts/
 helm repo update

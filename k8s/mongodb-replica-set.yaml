@@ -6,7 +6,7 @@ metadata:
 spec:
   version: "8.0.1"
   type: ReplicaSet
-  members: 1  # Reduced to single member for testing
+  members: 1
   security:
     authentication:
       modes:
@@ -49,6 +49,33 @@ spec:
               volumeMounts:
                 - name: mongodbdata
                   mountPath: /data/db
+            # Add this to override agent defaults (operator respects it)
+            - name: mongodb-agent
+              resources:
+                requests:
+                  cpu: "100m"  # Reduced from 500m
+                  memory: "128Mi"  # Reduced from 400Mi
+                limits:
+                  cpu: "250m"  # Reduced from 1
+                  memory: "256Mi"  # Reduced from 500Mi
+          # Optional: Reduce init container requests (they run sequentially but count for scheduling)
+          initContainers:
+            - name: mongod-posthook
+              resources:
+                requests:
+                  cpu: "100m"  # Reduced from 500m
+                  memory: "128Mi"  # Reduced from 400Mi
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"
+            - name: mongodb-agent-readinessprobe
+              resources:
+                requests:
+                  cpu: "100m"  # Reduced from 500m
+                  memory: "128Mi"  # Reduced from 400Mi
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"
       volumeClaimTemplates:
         - metadata:
             name: mongodbdata
