@@ -8,10 +8,9 @@ metadata:
 spec:
   type: NodePort
   selector:
-    # app: consul  # Adjust selector to match Consul server pods
-    app.kubernetes.io/name: consul  # Adjust to match pod labels
+    app: consul  # Changed to match pod label
   ports:
     - port: 8500
       targetPort: 8500
-      nodePort: 30000  # Use a port in the range 30000-32767
+      nodePort: 30000
       protocol: TCP
