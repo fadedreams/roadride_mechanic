@@ -22,14 +22,9 @@ spec:
           db: admin
         - name: userAdminAnyDatabase
           db: admin
-      scramCredentialsSecretName: repairdb-rs-root-scram  # Operator auto-creates this
-  # Use singular object for ReplicaSet storage template (operator handles multiples internally)
-  volumeClaimTemplate:
-    metadata:
-      name: mongodbdata
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 2Gi
-      storageClassName: standard
+      scramCredentialsSecretName: repairdb-rs-root-scram
+  # For older operator: Enable PVC with size/class (defaults to 8Gi if omitted; operator creates mongodbdata PVC)
+  persistent: true
+  persistence:
+    storage: 2Gi
+    storageClass: standard  # Matches Minikube
