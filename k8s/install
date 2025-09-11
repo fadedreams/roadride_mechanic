@@ -19,5 +19,3 @@ vi /etc/sudoers
 eval $(minikube docker-env)
 minikube start
 
-export https_proxy=http://109.248.161.147:8888
-export http_proxy=http://109.248.161.147:8888
