@@ -17,8 +17,9 @@ spec:
     spec:
       containers:
         - name: mongo-app
-          image: mongo-app:latest
-          imagePullPolicy: Never
+          # image: mongo-app:latest
+          image: fadedreams7/mongo-app:latest
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: app-config
