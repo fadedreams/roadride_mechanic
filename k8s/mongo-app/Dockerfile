@@ -1,5 +1,5 @@
 # Use the official Go image to build the app
-FROM golang:1.22 AS builder
+FROM golang:1.25.1 AS builder
 
 WORKDIR /app
 
