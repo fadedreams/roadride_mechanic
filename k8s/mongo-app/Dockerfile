@@ -4,7 +4,7 @@ FROM golang:1.25.1 AS builder
 WORKDIR /app
 
 # Copy go.mod and go.sum files
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the source code
