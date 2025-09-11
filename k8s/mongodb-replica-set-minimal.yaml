@@ -1,0 +1,35 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: repairdb-rs
+  namespace: roadride
+spec:
+  version: "8.0.1"
+  type: ReplicaSet
+  members: 1
+  security:
+    authentication:
+      modes:
+        - SCRAM
+  users:
+    - name: root
+      db: admin
+      passwordSecretRef:
+        name: mongodb-admin-secret
+        key: MONGO_INITDB_ROOT_PASSWORD
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      scramCredentialsSecretName: repairdb-rs-root-scram  # Operator auto-creates this
+  # No statefulSet overrides—let operator default (adds agent, low resources)
+  volumeClaimTemplate:  # Use singular (operator default; rename from plural)
+    metadata:
+      name: mongodbdata
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: standard
