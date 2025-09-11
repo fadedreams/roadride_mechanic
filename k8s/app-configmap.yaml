@@ -4,7 +4,8 @@ metadata:
   name: app-config
   namespace: roadride
 data:
-  MONGO_URI: "mongodb://root:password@mongodb-headless.roadride.svc.cluster.local:27017/repairdb?replicaSet=rs0&authSource=admin"
+  # MONGO_URI: "mongodb://root:password@mongodb-headless.roadride.svc.cluster.local:27017/repairdb?replicaSet=rs0&authSource=admin"
+  MONGO_URI: "mongodb://root:password@mongodb.roadride.svc.cluster.local:27017/repairdb?replicaSet=rs0&authSource=admin"
   KAFKA_BOOTSTRAP_SERVERS: "strimzi-kafka-bootstrap.roadride.svc.cluster.local:9092"
   SCHEMA_REGISTRY_URL: "http://strimzi-schema-registry.roadride.svc.cluster.local:8081"
   CONSUL_ADDRESS: "consul-server.roadride.svc.cluster.local:8500"
