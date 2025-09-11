@@ -4,50 +4,70 @@ metadata:
   name: repairdb-rs
   namespace: roadride
 spec:
-  version: "7.0.14"
+  version: "8.0.1"
   type: ReplicaSet
-  replicas: 3
+  members: 3  # Number of replicas (primary + 2 secondaries)
   security:
     authentication:
-      enabled: true
-      modes: ["SCRAM"]
-      ignoreUnknownUsers: true
-      adminUserSecretRef:
-        name: mongodb-admin-secret  # References the secret from Step 1
+      modes:  # Authentication modes (SCRAM is the default for MongoDB 8.0+)
+        - SCRAM
   users:
     - name: root
       db: admin
-      passwordSecretRef:
-        name: mongodb-admin-secret  # Same secret for password
+      passwordSecretRef:  # References your existing mongodb-admin-secret
+        name: mongodb-admin-secret
+        key: MONGO_INITDB_ROOT_PASSWORD  # Key from the secret
       roles:
         - name: clusterAdmin
           db: admin
         - name: userAdminAnyDatabase
           db: admin
-      scramCredentialsSecretName: repairdb-rs-root-credentials  # Operator-managed secret for scram
-  # Optional: Create a dedicated user for your app (e.g., for repairdb)
+      scramCredentialsSecretName: repairdb-rs-root-scram  # Operator creates this for SCRAM hashes
+  # Optional: App-specific user for repairdb (uncomment if needed)
   # users:
   #   - name: repairuser
   #     db: repairdb
   #     passwordSecretRef:
   #       name: mongodb-app-secret  # Create a separate secret for this
+  #       key: password
   #     roles:
   #       - name: readWrite
   #         db: repairdb
-  #     scramCredentialsSecretName: repairdb-rs-repairuser-credentials
-  persistence:
-    storageClass: ""  # Uses default StorageClass (e.g., standard in Minikube)
-    accessModes:
-      - ReadWriteOnce
-    size: 2Gi  # Per replica, matching Docker Compose mem_limit
-  # Optional: Resource limits (matching Docker Compose)
-  podSpec:
-    containers:
-      - name: mongodb-agent
+  #     scramCredentialsSecretName: repairdb-rs-repairuser-scram
+  # Replica set name: rs0 (matches Docker Compose) - set via postStart hook
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongod
+              # Resource limits/requests matching Docker Compose (2g mem, 1 CPU)
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: "2Gi"
+                requests:
+                  cpu: "500m"
+                  memory: "1Gi"
+              # Init replica set if not already done
+              lifecycle:
+                postStart:
+                  exec:
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        if [ -z "$(mongosh --quiet --eval 'rs.status().ok')" ]; then
+                          mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "'$HOSTNAME'.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 1, host: "repairdb-rs-1.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 2, host: "repairdb-rs-2.repairdb-rs-svc.roadride.svc.cluster.local:27017" }] })'
+                        fi
+  # Persistence: 2Gi per pod (uses default StorageClass in Minikube)
+  persistent: true
+  volumeSpec:
+    persistentVolumeClaim:
+      spec:
+        accessModes:
+          - ReadWriteOnce
         resources:
-          limits:
-            cpu: "1"
-            memory: "2Gi"
           requests:
-            cpu: "500m"
-            memory: "1Gi"
+            storage: 2Gi
+        storageClassName: standard  # Minikube default; adjust if needed
