@@ -1,7 +1,12 @@
-architecture: standalone  # Changed from replicaset
+architecture: replicaset  # Top-level for replicaset
 auth:
   enabled: true
-  rootPassword: password
+  rootPassword: password  # Root user: root / password
+replica:
+  replicaCount: 1  # Single member (primary only)
+  replicaSetName: rs0
+  arbiter:
+    enabled: false  # Disable arbiter (unneeded for 1-member; avoids resources warning)
 persistence:
   enabled: true
   size: 2Gi
@@ -13,12 +18,3 @@ resources:
   limits:
     cpu: 500m
     memory: 1Gi
-externalAccess:
-  enabled: true
-  autoDiscovery:
-    enabled: true
-  service:
-    type: NodePort
-    # For standalone, nodePorts is a single-entry array
-    nodePorts:
-      - 27017  # Host port 27017
