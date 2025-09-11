@@ -1,3 +1,21 @@
+# kubectl apply -f consul-nodeport-service.yaml
+# kubectl describe svc consul-nodeport -n roadride
+#
+# curl http://[minikube ip]:30000/v1/status/leader
+# curl http://192.168.49.2:30000/v1/status/leader
+#
+# sudo iptables -t nat -A PREROUTING -p tcp -d 94.183.188.74 --dport 30000 -j DNAT --to-destination 192.168.49.2:30000
+# sudo iptables -A FORWARD -p tcp -d 192.168.49.2 --dport 30000 -j ACCEPT
+# sudo iptables-save > /etc/iptables/rules.v4
+# sudo apt install iptables-persistent -y
+# or
+# sudo apt install socat -y
+# socat TCP-LISTEN:30000,fork TCP:192.168.49.2:30000 &
+# curl http://94.183.188.74:30000/v1/status/leader
+# http://94.183.188.74:30000
+# browser http://94.183.188.74:30000
+# browser http://serverip:30000
+
 apiVersion: v1
 kind: Service
 metadata:
