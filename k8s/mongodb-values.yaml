@@ -1,12 +1,12 @@
-architecture: replicaset  # Top-level for replicaset
+architecture: replicaset
 auth:
   enabled: true
-  rootPassword: password  # Root user: root / password
+  rootPassword: password  # Change this to something secure!
 replica:
-  replicaCount: 1  # Single member (primary only)
+  replicaCount: 1
   replicaSetName: rs0
   arbiter:
-    enabled: false  # Disable arbiter (unneeded for 1-member; avoids resources warning)
+    enabled: false
 persistence:
   enabled: true
   size: 2Gi
@@ -18,3 +18,13 @@ resources:
   limits:
     cpu: 500m
     memory: 1Gi
+# Add these for external access
+externalAccess:
+  enabled: true
+  autoDiscovery:
+    enabled: true  # Auto-configures replica set with external IPs/ports
+  service:
+    type: NodePort  # Use NodePort for Minikube (LoadBalancer also works with tunnel)
+    nodePorts:      # Optional: Fix ports (27017 for main, 27018 for repl)
+      - 30017       # External port for mongodb-mongodb service
+      - 30018       # External port for mongodb-mongodb-headless (repl set)
