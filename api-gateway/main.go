@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -33,6 +36,12 @@ func main() {
 
 	// Log startup
 	slog.Info("Starting API Gateway", "app", "api-gateway", "timestamp", time.Now().Unix())
+
+	// Initialize MongoDB
+	if err := initMongoDB(); err != nil {
+		slog.Error("Failed to initialize MongoDB", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize tracer
 	shutdown, err := initTracer()
@@ -67,6 +76,142 @@ func main() {
 		slog.Error("Failed to start server", "error", err)
 		os.Exit(1)
 	}
+}
+
+func initMongoDB() error {
+	// Set up MongoDB client options with directConnection=true for uninitialized replica set
+	clientOptions := options.Client().
+		ApplyURI("mongodb://mongodb:27017/?directConnection=true").
+		SetConnectTimeout(10 * time.Second)
+
+	// Connect to MongoDB
+	client, err := mongo.Connect(context.Background(), clientOptions)
+	if err != nil {
+		slog.Error("failed to connect to MongoDB", slog.String("error", err.Error()))
+		return fmt.Errorf("failed to connect to MongoDB: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Ping the MongoDB server to verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx, nil); err != nil {
+		slog.Error("failed to ping MongoDB", slog.String("error", err.Error()))
+		return fmt.Errorf("failed to ping MongoDB: %v", err)
+	}
+	slog.Info("Connected to MongoDB")
+
+	// Initialize the replica set
+	adminDB := client.Database("admin")
+	replSetConfig := bson.D{
+		{Key: "replSetInitiate", Value: bson.D{
+			{Key: "_id", Value: "rs0"},
+			{Key: "members", Value: bson.A{
+				bson.D{
+					{Key: "_id", Value: 0},
+					{Key: "host", Value: "mongodb:27017"},
+				},
+			}},
+		}},
+	}
+
+	result, err := adminDB.RunCommand(ctx, replSetConfig).DecodeBytes()
+	if err != nil {
+		if err.Error() == "command replSetInitiate failed: already initialized" {
+			slog.Info("Replica set already initialized (safe to ignore).")
+		} else {
+			slog.Error("failed to initialize replica set", slog.String("error", err.Error()))
+			return fmt.Errorf("failed to initialize replica set: %v", err)
+		}
+	} else {
+		slog.Info("Replica set initialized successfully", "result", result.String())
+	}
+
+	// Wait for the replica set to become primary
+	for i := 0; i < 30; i++ {
+		status, err := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).DecodeBytes()
+		if err != nil {
+			return fmt.Errorf("failed to get replica set status: %v", err)
+		}
+		slog.Info("Replica set status", "status", status.String())
+		var statusDoc bson.M
+		if err := bson.Unmarshal(status, &statusDoc); err != nil {
+			return fmt.Errorf("failed to unmarshal replica set status: %v", err)
+		}
+		if myState, ok := statusDoc["myState"].(float64); ok && myState == 1 {
+			slog.Info("Replica set is now in PRIMARY state")
+			break
+		}
+		slog.Info("Waiting for replica set to become PRIMARY")
+		time.Sleep(2 * time.Second)
+	}
+
+	// Reconnect with replica set URI
+	clientOptions = options.Client().
+		ApplyURI("mongodb://localhost:27017/repairdb?replicaSet=rs0").
+		SetConnectTimeout(10 * time.Second)
+	client, err = mongo.Connect(context.Background(), clientOptions)
+	if err != nil {
+		return fmt.Errorf("failed to reconnect to MongoDB with replica set: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Initialize mechanics collection
+	mechanicsColl := client.Database("repairdb").Collection("mechanics")
+	mechanics := []interface{}{
+		bson.M{
+			"_id": "mechanic1",
+			"name": "Berlin Auto Repair",
+			"location": bson.M{
+				"longitude": 13.388860,
+				"latitude":  52.517037,
+			},
+		},
+		bson.M{
+			"_id": "mechanic2",
+			"name": "City Garage",
+			"location": bson.M{
+				"longitude": 13.397634,
+				"latitude":  52.529407,
+			},
+		},
+		bson.M{
+			"_id": "mechanic3",
+			"name": "Fast Fix Mechanics",
+			"location": bson.M{
+				"longitude": 13.428555,
+				"latitude":  52.523219,
+			},
+		},
+	}
+
+	// Drop and insert mechanics (idempotent)
+	if err := mechanicsColl.Drop(ctx); err != nil {
+		slog.Warn("Failed to drop mechanics collection (may not exist)", "error", err)
+	}
+	_, err = mechanicsColl.InsertMany(ctx, mechanics)
+	if err != nil {
+		return fmt.Errorf("failed to insert mechanics: %v", err)
+	}
+	slog.Info("Inserted mechanics data successfully")
+
+	// Create index on mechanic_outbox
+	outboxColl := client.Database("repairdb").Collection("mechanic_outbox")
+	indexModel := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "kafka_topic", Value: 1},
+			{Key: "kafka_partition", Value: 1},
+			{Key: "kafka_offset", Value: 1},
+		},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err = outboxColl.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		return fmt.Errorf("failed to create index on mechanic_outbox: %v", err)
+	}
+	slog.Info("Created index on mechanic_outbox successfully")
+
+	return nil
 }
 
 func initTracer() (func(), error) {

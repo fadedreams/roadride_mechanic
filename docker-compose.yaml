@@ -1,4 +1,5 @@
 services:
+
   api-gateway:
     build:
       context: ./api-gateway
@@ -11,6 +12,8 @@ services:
     networks:
       - app-network
     depends_on:
+      mongodb:
+        condition: service_healthy
       repair-service:
         condition: service_started
       mechanic-service:
@@ -91,8 +94,6 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-data:/data/db
-      - ./init_mechanics.js:/docker-entrypoint-initdb.d/init_mechanics.js:ro
-      - ./init_replica.js:/docker-entrypoint-initdb.d/init_replica.js:ro
     command: ["mongod", "--replSet", "rs0"]
     networks:
       - app-network
