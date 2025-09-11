@@ -34,7 +34,7 @@ spec:
   #       - name: readWrite
   #         db: repairdb
   #     scramCredentialsSecretName: repairdb-rs-repairuser-scram
-  # Replica set name: rs0 (matches Docker Compose) - set via postStart hook
+  # Pod and StatefulSet customization
   statefulSet:
     spec:
       template:
@@ -60,14 +60,18 @@ spec:
                         if [ -z "$(mongosh --quiet --eval 'rs.status().ok')" ]; then
                           mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "'$HOSTNAME'.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 1, host: "repairdb-rs-1.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 2, host: "repairdb-rs-2.repairdb-rs-svc.roadride.svc.cluster.local:27017" }] })'
                         fi
-  # Persistence: 2Gi per pod (uses default StorageClass in Minikube)
-  persistent: true
-  volumeSpec:
-    persistentVolumeClaim:
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 2Gi
-        storageClassName: standard  # Minikube default; adjust if needed
+              # Volume mounts for data persistence
+              volumeMounts:
+                - name: mongodbdata
+                  mountPath: /data/db
+      # Volume claim template for PVCs (one per replica)
+      volumeClaimTemplates:
+        - metadata:
+            name: mongodbdata
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+            storageClassName: standard  # Minikube default; adjust if needed
