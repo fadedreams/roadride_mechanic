@@ -4,9 +4,9 @@ metadata:
   name: repairdb-rs
   namespace: roadride
 spec:
-  version: "8.0.1"
-  type: ReplicaSet
   members: 1
+  type: ReplicaSet
+  version: "8.0.1"
   security:
     authentication:
       modes:
@@ -23,12 +23,17 @@ spec:
         - name: userAdminAnyDatabase
           db: admin
       scramCredentialsSecretName: repairdb-rs-root-scram
-  volumeClaimTemplate:
-    metadata:
-      name: mongodbdata
+  persistent: true  # Enables PVCs (default 8Gi; overridden below)
+  statefulSet:  # Customizes StatefulSet for storage
     spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 2Gi
-      storageClassName: standard
+      template:
+        spec:
+          volumeClaimTemplates:
+            - metadata:
+                name: data-volume
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 2Gi
+                storageClassName: standard
