@@ -27,16 +27,18 @@ func main() {
 	// Set up MongoDB client options
 	clientOptions := options.Client().ApplyURI(mongoURI).SetConnectTimeout(10 * time.Second)
 
-	// Connect to MongoDB (v2 API: pass context directly)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, clientOptions)
+	// Connect to MongoDB (v2 API: no ctx in Connect; use options only)
+	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
-	defer client.Disconnect(ctx)
+	defer client.Disconnect(context.Background())
 
-	// Ping the MongoDB server
+	// Create a context for operations
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Ping the MongoDB server (v2 API: pass ctx)
 	if err = client.Ping(ctx, nil); err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
