@@ -129,29 +129,37 @@ func initMongoDB() error {
 
 	// Wait for the replica set to become primary
 	for i := 0; i < 30; i++ {
-		status, err := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).DecodeBytes()
+		// Create a new context for each iteration to avoid reusing a canceled context
+		statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer statusCancel()
+
+		var statusDoc bson.M
+		err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc)
 		if err != nil {
+			slog.Error("failed to get replica set status", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to get replica set status: %v", err)
 		}
-		slog.Info("Replica set status", "status", status.String())
-		var statusDoc bson.M
-		if err := bson.Unmarshal(status, &statusDoc); err != nil {
-			return fmt.Errorf("failed to unmarshal replica set status: %v", err)
-		}
+		slog.Info("Replica set status", "status", fmt.Sprintf("%+v", statusDoc))
+
 		if myState, ok := statusDoc["myState"].(float64); ok && myState == 1 {
 			slog.Info("Replica set is now in PRIMARY state")
 			break
 		}
-		slog.Info("Waiting for replica set to become PRIMARY")
+		slog.Info("Waiting for replica set to become PRIMARY", "attempt", i+1)
 		time.Sleep(2 * time.Second)
+
+		if i == 29 {
+			return fmt.Errorf("replica set did not become PRIMARY after 60 seconds")
+		}
 	}
 
 	// Reconnect with replica set URI
 	clientOptions = options.Client().
-		ApplyURI("mongodb://localhost:27017/repairdb?replicaSet=rs0").
+		ApplyURI("mongodb://mongodb:27017/repairdb?replicaSet=rs0").
 		SetConnectTimeout(10 * time.Second)
 	client, err = mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
+		slog.Error("failed to reconnect to MongoDB with replica set", slog.String("error", err.Error()))
 		return fmt.Errorf("failed to reconnect to MongoDB with replica set: %v", err)
 	}
 	defer client.Disconnect(context.Background())
@@ -186,11 +194,14 @@ func initMongoDB() error {
 	}
 
 	// Drop and insert mechanics (idempotent)
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if err := mechanicsColl.Drop(ctx); err != nil {
 		slog.Warn("Failed to drop mechanics collection (may not exist)", "error", err)
 	}
 	_, err = mechanicsColl.InsertMany(ctx, mechanics)
 	if err != nil {
+		slog.Error("failed to insert mechanics", slog.String("error", err.Error()))
 		return fmt.Errorf("failed to insert mechanics: %v", err)
 	}
 	slog.Info("Inserted mechanics data successfully")
@@ -207,6 +218,7 @@ func initMongoDB() error {
 	}
 	_, err = outboxColl.Indexes().CreateOne(ctx, indexModel)
 	if err != nil {
+		slog.Error("failed to create index on mechanic_outbox", slog.String("error", err.Error()))
 		return fmt.Errorf("failed to create index on mechanic_outbox: %v", err)
 	}
 	slog.Info("Created index on mechanic_outbox successfully")
