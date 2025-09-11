@@ -127,33 +127,60 @@ func initMongoDB() error {
 		slog.Info("Replica set initialized successfully", "result", result.String())
 	}
 
-	// Wait for the replica set to become primary
-	for i := 0; i < 30; i++ {
-		// Create a new context for each iteration to avoid reusing a canceled context
-		statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer statusCancel()
+	// Optional: Quick check for PRIMARY state (single check or short loop; safe to skip for single-member sets)
+	// For single-member sets, this should pass immediately after initiate.
+	statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer statusCancel()
+	var statusDoc bson.M
+	if err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc); err != nil {
+		slog.Error("failed to get replica set status", slog.String("error", err.Error()))
+		return fmt.Errorf("failed to get replica set status: %v", err)
+	}
+	slog.Info("Replica set status", "status", fmt.Sprintf("%+v", statusDoc))
 
-		var statusDoc bson.M
-		err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc)
-		if err != nil {
-			slog.Error("failed to get replica set status", slog.String("error", err.Error()))
-			return fmt.Errorf("failed to get replica set status: %v", err)
-		}
-		slog.Info("Replica set status", "status", fmt.Sprintf("%+v", statusDoc))
-
-		if myState, ok := statusDoc["myState"].(float64); ok && myState == 1 {
-			slog.Info("Replica set is now in PRIMARY state")
-			break
-		}
-		slog.Info("Waiting for replica set to become PRIMARY", "attempt", i+1)
-		time.Sleep(2 * time.Second)
-
-		if i == 29 {
-			return fmt.Errorf("replica set did not become PRIMARY after 60 seconds")
+	// Check myState with flexible type handling (could be int32, int64, or float64 in BSON)
+	myStateVal, ok := statusDoc["myState"]
+	if !ok {
+		return fmt.Errorf("myState not found in replica set status")
+	}
+	myStateNum, ok := myStateVal.(int32)
+	if !ok {
+		if myStateNum64, ok64 := myStateVal.(int64); ok64 {
+			myStateNum = int32(myStateNum64)
+		} else if myStateFloat, okFloat := myStateVal.(float64); okFloat {
+			myStateNum = int32(myStateFloat)
+		} else {
+			return fmt.Errorf("myState has unexpected type: %T (value: %v)", myStateVal, myStateVal)
 		}
 	}
+	if myStateNum != 1 {
+		// Optional short loop if not PRIMARY (rare for single-member)
+		for i := 0; i < 10; i++ {  // Reduced to 20 seconds max
+			statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer statusCancel()
+			if err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc); err != nil {
+				slog.Error("failed to get replica set status in loop", slog.String("error", err.Error()))
+				return fmt.Errorf("failed to get replica set status in loop: %v", err)
+			}
+			myStateVal, _ = statusDoc["myState"]
+			if myStateNum64, ok64 := myStateVal.(int64); ok64 && myStateNum64 == 1 {
+				slog.Info("Replica set is now in PRIMARY state")
+				break
+			} else if myStateFloat, okFloat := myStateVal.(float64); okFloat && myStateFloat == 1 {
+				slog.Info("Replica set is now in PRIMARY state")
+				break
+			}
+			slog.Info("Waiting for replica set to become PRIMARY", "attempt", i+1)
+			time.Sleep(2 * time.Second)
+		}
+		if myStateNum != 1 {
+			return fmt.Errorf("replica set did not become PRIMARY after waiting")
+		}
+	} else {
+		slog.Info("Replica set is already in PRIMARY state")
+	}
 
-	// Reconnect with replica set URI
+	// Reconnect with replica set URI (MongoDB driver will handle primary discovery)
 	clientOptions = options.Client().
 		ApplyURI("mongodb://mongodb:27017/repairdb?replicaSet=rs0").
 		SetConnectTimeout(10 * time.Second)

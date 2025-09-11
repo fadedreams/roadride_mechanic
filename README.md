@@ -19,6 +19,11 @@ docker exec -it roadride_mechanic-mongodb-1 mongosh -u admin -p admin
 ```
 ```
 
+curl http://localhost:8085/health
+curl http://localhost:8086/health
+curl http://localhost:8087/health
+
+
 ###consul
 curl http://localhost:8500/v1/catalog/services
 curl http://localhost:8500/v1/status/leader
