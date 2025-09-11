@@ -17,9 +17,8 @@ spec:
     spec:
       containers:
         - name: mongo-app
-          # image: mongo-app:latest
-          image: fadedreams7/mongo-app:latest
-          imagePullPolicy: IfNotPresent
+          image: mongo-app:latest
+          imagePullPolicy: Never
           envFrom:
             - configMapRef:
                 name: app-config
@@ -30,13 +29,14 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-          livenessProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 5
+          # Comment out or remove probes
+          # livenessProbe:
+          #   tcpSocket:
+          #     port: 8080
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   tcpSocket:
+          #     port: 8080
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 5
