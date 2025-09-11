@@ -6,50 +6,36 @@ metadata:
 spec:
   version: "8.0.1"
   type: ReplicaSet
-  members: 3  # Number of replicas (primary + 2 secondaries)
+  members: 1  # Reduced to single member for testing
   security:
     authentication:
-      modes:  # Authentication modes (SCRAM is the default for MongoDB 8.0+)
+      modes:
         - SCRAM
   users:
     - name: root
       db: admin
-      passwordSecretRef:  # References your existing mongodb-admin-secret
+      passwordSecretRef:
         name: mongodb-admin-secret
-        key: MONGO_INITDB_ROOT_PASSWORD  # Key from the secret
+        key: MONGO_INITDB_ROOT_PASSWORD
       roles:
         - name: clusterAdmin
           db: admin
         - name: userAdminAnyDatabase
           db: admin
-      scramCredentialsSecretName: repairdb-rs-root-scram  # Operator creates this for SCRAM hashes
-  # Optional: App-specific user for repairdb (uncomment if needed)
-  # users:
-  #   - name: repairuser
-  #     db: repairdb
-  #     passwordSecretRef:
-  #       name: mongodb-app-secret  # Create a separate secret for this
-  #       key: password
-  #     roles:
-  #       - name: readWrite
-  #         db: repairdb
-  #     scramCredentialsSecretName: repairdb-rs-repairuser-scram
-  # Pod and StatefulSet customization
+      scramCredentialsSecretName: repairdb-rs-root-scram
   statefulSet:
     spec:
       template:
         spec:
           containers:
             - name: mongod
-              # Resource limits/requests matching Docker Compose (2g mem, 1 CPU)
               resources:
                 limits:
-                  cpu: "1"
-                  memory: "2Gi"
-                requests:
                   cpu: "500m"
                   memory: "1Gi"
-              # Init replica set if not already done
+                requests:
+                  cpu: "250m"
+                  memory: "512Mi"
               lifecycle:
                 postStart:
                   exec:
@@ -58,13 +44,11 @@ spec:
                       - -c
                       - |
                         if [ -z "$(mongosh --quiet --eval 'rs.status().ok')" ]; then
-                          mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "'$HOSTNAME'.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 1, host: "repairdb-rs-1.repairdb-rs-svc.roadride.svc.cluster.local:27017" }, { _id: 2, host: "repairdb-rs-2.repairdb-rs-svc.roadride.svc.cluster.local:27017" }] })'
+                          mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "'$HOSTNAME'.repairdb-rs-svc.roadride.svc.cluster.local:27017" }] })'
                         fi
-              # Volume mounts for data persistence
               volumeMounts:
                 - name: mongodbdata
                   mountPath: /data/db
-      # Volume claim template for PVCs (one per replica)
       volumeClaimTemplates:
         - metadata:
             name: mongodbdata
@@ -74,4 +58,4 @@ spec:
             resources:
               requests:
                 storage: 2Gi
-            storageClassName: standard  # Minikube default; adjust if needed
+            storageClassName: standard
