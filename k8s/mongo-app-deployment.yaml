@@ -29,7 +29,7 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-          # Comment out or remove probes
+          # Remove probes since main.go doesn't expose a port
           # livenessProbe:
           #   tcpSocket:
           #     port: 8080
