@@ -1,0 +1,53 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: repairdb-rs
+  namespace: roadride
+spec:
+  version: "7.0.14"
+  type: ReplicaSet
+  replicas: 3
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]
+      ignoreUnknownUsers: true
+      adminUserSecretRef:
+        name: mongodb-admin-secret  # References the secret from Step 1
+  users:
+    - name: root
+      db: admin
+      passwordSecretRef:
+        name: mongodb-admin-secret  # Same secret for password
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      scramCredentialsSecretName: repairdb-rs-root-credentials  # Operator-managed secret for scram
+  # Optional: Create a dedicated user for your app (e.g., for repairdb)
+  # users:
+  #   - name: repairuser
+  #     db: repairdb
+  #     passwordSecretRef:
+  #       name: mongodb-app-secret  # Create a separate secret for this
+  #     roles:
+  #       - name: readWrite
+  #         db: repairdb
+  #     scramCredentialsSecretName: repairdb-rs-repairuser-credentials
+  persistence:
+    storageClass: ""  # Uses default StorageClass (e.g., standard in Minikube)
+    accessModes:
+      - ReadWriteOnce
+    size: 2Gi  # Per replica, matching Docker Compose mem_limit
+  # Optional: Resource limits (matching Docker Compose)
+  podSpec:
+    containers:
+      - name: mongodb-agent
+        resources:
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
