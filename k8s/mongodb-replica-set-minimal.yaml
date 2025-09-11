@@ -23,13 +23,13 @@ spec:
         - name: userAdminAnyDatabase
           db: admin
       scramCredentialsSecretName: repairdb-rs-root-scram  # Operator auto-creates this
-  # Use plural array for templates (operator defaults to low CPU ~100-250m per container)
-  volumeClaimTemplates:
-    - metadata:
-        name: mongodbdata
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 2Gi
-        storageClassName: standard
+  # Use singular object for ReplicaSet storage template (operator handles multiples internally)
+  volumeClaimTemplate:
+    metadata:
+      name: mongodbdata
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: standard
