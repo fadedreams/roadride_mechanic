@@ -32,3 +32,83 @@ externalAccess:
 rbac:
   create: true
 automountServiceAccountToken: true
+
+# # config for remote access
+# # Port-forward to headless service (for replica set connections)
+# kubectl port-forward --namespace roadride svc/mongodb-headless 27017:27017 &
+#
+# # Test internal connection (from VPS)
+# export MONGODB_ROOT_PASSWORD=$(kubectl get secret --namespace roadride mongodb -o jsonpath="{.data.mongodb-root-password}" | base64 -d)
+# mongosh "mongodb://root:$MONGODB_ROOT_PASSWORD@localhost:27017/repairdb?replicaSet=rs0&authSource=admin" --eval "db.mechanics.find()"
+# # Verify Replica Set Configuration Exec into primary pod (usually mongodb-0)
+# kubectl exec -it mongodb-0 -n roadride -- mongosh admin -u root -p $MONGODB_ROOT_PASSWORD --eval "rs.status()"
+#
+# # Stop forward: jobs; kill %1 (or fg; Ctrl+C)
+#
+# # Enable External Access from VPS/Remote
+# sudo apt update && sudo apt install -y socat netcat-traditional
+# # Bridge VPS IP to Minikube NodePorts (for both replicas):
+# # Forward VPS:30017 -> Minikube:30017 (pod-0)
+# nohup socat TCP-LISTEN:30017,fork,reuseaddr,bind=31.59.120.121 TCP:192.168.49.2:30017 &
+#
+# # Forward VPS:30018 -> Minikube:30018 (pod-1)
+# nohup socat TCP-LISTEN:30018,fork,reuseaddr,bind=31.59.120.121 TCP:192.168.49.2:30018 &
+#
+# # Verify bridges
+# nc -zv 31.59.120.121 30017  # Should succeed
+# nc -zv 31.59.120.121 30018  # Should succeed
+#
+# sudo ufw allow 30017/tcp
+# sudo ufw allow 30018/tcp
+# sudo ufw reload
+# sudo ufw status | grep 300
+#
+# # Update Replica Set for VPS IP
+# kubectl exec -it mongodb-0 -n roadride -- mongosh admin -u root -p $MONGODB_ROOT_PASSWORD --eval "
+# rs.reconfig({
+#   _id: 'rs0',
+#   members: [
+#     { _id: 0, host: '31.59.120.121:30017' },
+#     { _id: 1, host: '31.59.120.121:30018' }
+#   ]
+# }, {force: true})
+# "
+#
+# # Remove the arbiter
+# kubectl exec -it mongodb-0 -n roadride -- mongosh admin -u root -p $MONGODB_ROOT_PASSWORD --eval "
+# rs.remove('mongodb-arbiter-0.mongodb-arbiter-headless.roadride.svc.cluster.local:27017')
+# "
+# # Re-add the arbiter
+# kubectl exec -it mongodb-0 -n roadride -- mongosh admin -u root -p $MONGODB_ROOT_PASSWORD --eval "
+# rs.addArb('mongodb-arbiter-0.mongodb-arbiter-headless.roadride.svc.cluster.local:27017')
+# "
+#
+# # : Update data nodes' hosts to VPS IP
+# kubectl exec -it mongodb-0 -n roadride -- mongosh admin -u root -p $MONGODB_ROOT_PASSWORD --eval "
+# cfg = rs.conf();
+# cfg.members[0].host = '31.59.120.121:30017';  // Primary (_id 0)
+# cfg.members[1].host = '31.59.120.121:30018';  // Secondary (_id 2, adjust index if needed)
+# if (Array.isArray(cfg.members) && cfg.members.length > 2) {
+#   cfg.members[2].host = 'mongodb-arbiter-0.mongodb-arbiter-headless.roadride.svc.cluster.local:27017';  // Arbiter (if re-added)
+# }
+# cfg.version += 1;
+# rs.reconfig(cfg);
+# "
+# sudo ufw allow 30017/tcp
+# sudo ufw allow 30018/tcp
+# sudo ufw reload
+# sudo ufw status | grep 300
+#
+# # Test from remote machine
+# # Use VPS IP; replicaSet=rs0 for discovery
+# mongosh "mongodb://root:password@31.59.120.121:30017/repairdb?replicaSet=rs0&authSource=admin" --eval "db.mechanics.find()"
+#
+# # Insert/test data (should replicate to secondary)
+# mongosh "mongodb://root:password@31.59.120.121:30017/repairdb?replicaSet=rs0&authSource=admin" --eval "
+# use repairdb;
+# db.mechanics.insertOne({name: 'remote-test', skill: 'brakes'});
+# db.mechanics.find();
+# "
+#
+# # Verify on secondary (connect directly)
+# mongosh "mongodb://root:password@31.59.120.121:30018/repairdb?replicaSet=rs0&authSource=admin" --eval "db.mechanics.find()"
