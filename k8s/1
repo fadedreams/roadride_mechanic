@@ -8,6 +8,9 @@ docker build -t api-gateway:latest ./api-gateway
 docker build -t repair-service:latest ./repair-service
 docker build -t mechanic-service:latest ./mechanic-service
 
+kubectl get nodes
+docker images | grep -E 'api-gateway|repair-service|mechanic-service'
+
 helm repo add hashicorp https://helm.releases.hashicorp.com
 helm repo update
 helm install consul hashicorp/consul --version 1.8.0 --set server.replicas=1 --set server.bootstrapExpect=1 --set global.name=consul --namespace roadride
