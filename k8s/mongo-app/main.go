@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type Mechanic struct {
@@ -27,7 +27,7 @@ func main() {
 	// Set up MongoDB client options
 	clientOptions := options.Client().ApplyURI(mongoURI).SetConnectTimeout(10 * time.Second)
 
-	// Connect to MongoDB
+	// Connect to MongoDB (v2 API: pass context directly)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client, err := mongo.Connect(ctx, clientOptions)
@@ -37,8 +37,7 @@ func main() {
 	defer client.Disconnect(ctx)
 
 	// Ping the MongoDB server
-	err = client.Ping(ctx, nil)
-	if err != nil {
+	if err = client.Ping(ctx, nil); err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 	fmt.Println("Connected to MongoDB!")
@@ -48,11 +47,11 @@ func main() {
 
 	// Insert a sample mechanic document
 	mechanic := Mechanic{Name: "John Doe", Skill: "Engine Repair"}
-	_, err = collection.InsertOne(ctx, mechanic)
+	insertResult, err := collection.InsertOne(ctx, mechanic)
 	if err != nil {
 		log.Fatalf("Failed to insert document: %v", err)
 	}
-	fmt.Println("Inserted mechanic document:", mechanic)
+	fmt.Printf("Inserted mechanic document with ID %v: %+v\n", insertResult.InsertedID, mechanic)
 
 	// Query the collection for the inserted document
 	var result Mechanic
