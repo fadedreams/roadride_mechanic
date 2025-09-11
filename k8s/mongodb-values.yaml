@@ -1,0 +1,20 @@
+architecture: replicaset  # Top-level for replicaset
+auth:
+  enabled: true
+  rootPassword: password  # Root user: root / password
+replica:
+  replicaCount: 1  # Single member (primary only)
+  replicaSetName: rs0
+  arbiter:
+    enabled: false  # Disable arbiter (unneeded for 1-member; avoids resources warning)
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClass: standard
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
