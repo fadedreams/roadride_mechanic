@@ -18,6 +18,7 @@ spec:
       containers:
         - name: mongo-app
           image: mongo-app:latest
+          imagePullPolicy: Never
           envFrom:
             - configMapRef:
                 name: app-config
