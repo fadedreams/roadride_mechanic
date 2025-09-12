@@ -1,3 +1,4 @@
+# kubectl port-forward kafka-0 29092:9092 -n roadride
 apiVersion: v1
 kind: Namespace
 metadata:
