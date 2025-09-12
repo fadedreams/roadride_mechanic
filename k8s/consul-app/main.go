@@ -51,11 +51,10 @@ func main() {
 		Port:    8089,
 		Address: "localhost", // Use localhost since health check is internal
 		Check: &api.AgentServiceCheck{
-			HTTP:     fmt.Sprintf("http://localhost:%s/health", servicePort),
-			Interval: "10s",
-			Timeout:  "5s",
-			// Increase DeregisterCriticalServiceAfter to give more buffer
-			DeregisterCriticalServiceAfter: "2m",
+			HTTP:                           fmt.Sprintf("http://localhost:%s/health", servicePort),
+			Interval:                       "10s",
+			Timeout:                        "10s", // Increase timeout
+			DeregisterCriticalServiceAfter: "5m", // Increase to 5 minutes
 		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
@@ -84,12 +83,12 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		logger.Info("Starting consul-app", "port", servicePort, "app", "consul-app")
+		time.Sleep(5 * time.Second) // Add delay to ensure readiness
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Failed to start server", "error", err, "app", "consul-app")
 			os.Exit(1)
 		}
 	}()
-
 	// Handle graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
