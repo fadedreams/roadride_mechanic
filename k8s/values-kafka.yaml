@@ -1,31 +1,31 @@
-# Bitnami Kafka Helm Chart values.yaml adapted from docker-compose.yaml
-# Full defaults: https://github.com/bitnami/charts/blob/main/bitnami/kafka/values.yaml
+# Bitnami Kafka Helm Chart values.yaml - Fixed for single-node PLAINTEXT KRaft matching docker-compose
+# Sources: Bitnami GitHub README, Artifact Hub values, community examples (e.g., Stack Overflow)
 
 ## Global Docker image parameters
 image:
   registry: docker.io
   repository: bitnami/kafka
-  tag: 3.8.0-debian-12-r1  # Matches your 3.6 base; update to latest if needed (3.8.0 as of Sep 2025)
+  tag: 3.8.0-debian-12-r1  # Matches your 3.6 base
   pullPolicy: IfNotPresent
   pullSecrets: []
 
-## Authentication (disabled for PLAINTEXT, like your setup)
+## Authentication (disabled for PLAINTEXT)
 auth:
-  enabled: false  # Set to true for SASL/SCRAM if needed
+  enabled: false
 
-## Number of Kafka brokers (single-node like your setup)
+## Replicas (explicit single-node)
 replicaCount: 1
 
-## Persistence for /bitnami/kafka (maps to your kafka-data volume)
+## Persistence
 persistence:
   enabled: true
-  storageClass: ""  # Use default StorageClass (e.g., local-path for dev)
+  storageClass: ""  # Default StorageClass
   accessModes:
     - ReadWriteOnce
-  size: 8Gi  # Adjust based on needs; your Docker has no limit
+  size: 8Gi
   annotations: {}
 
-## Resource limits (aligned with your MongoDB example)
+## Resources
 resources:
   requests:
     cpu: 500m
@@ -34,66 +34,63 @@ resources:
     cpu: 1.0
     memory: 2Gi
 
-## KRaft mode (ZooKeeper-less, like your setup)
+## ZooKeeper (disabled to force KRaft)
+zookeeper:
+  enabled: false
+
+## KRaft mode (single-node config)
 kraft:
   enabled: true
-
-## KRaft-specific configurations
-kraft:
-  clusterId: XqZrTh1yT8qXwjsn1a6L9A  # From your KAFKA_KRAFT_CLUSTER_ID
+  version: 0  # Static quorum for single-node (default 1/dynamic enforces multi-replica)
+  clusterId: XqZrTh1yT8qXwjsn1a6L9A
+  quorumReplicaCount: 1  # Key: Forces single-replica quorum (overrides chart default of 3)
   nodeIds:
-    - 1  # Single node ID from your setup
-  # Controller quorum: Single node acts as both broker and controller
+    - 1
   controllers:
-    - 1@kafka-headless.default.svc.cluster.local:9093  # Internal headless service
+    - 1@my-kafka-headless.roadride.svc.cluster.local:9093  # Single controller; namespace=roadride
 
-## Listeners configuration (maps your KAFKA_CFG_LISTENERS and ADVERTISED_LISTENERS)
+## Listeners (PLAINTEXT, ports matching docker-compose)
 listeners:
   internal:
     containerPort: 9094
     servicePort: 9094
     protocol: PLAINTEXT
-    advertisedHost: kafka-headless.default.svc.cluster.local  # Internal DNS for cluster services (e.g., repair-service, mechanic-service)
+    advertisedHost: my-kafka-headless.roadride.svc.cluster.local
     advertisedPort: 9094
   external:
     enabled: true
     containerPort: 9092
     servicePort: 9092
     protocol: PLAINTEXT
-    # For LoadBalancer/NodePort external access (maps your EXTERNAL://localhost:9092)
-    service:
-      type: NodePort  # Or LoadBalancer for cloud; exposes on host:9092
-      nodePorts:
-        - 9092  # Maps to your ports: - "9092:9092"
-      loadBalancerIPs: []  # Set if using LoadBalancer
-      loadBalancerSourceRanges: []  # Restrict in prod
+    advertisedHost: ""  # Auto for NodePort
+    advertisedPort: 9092
   controller:
     containerPort: 9093
     servicePort: 9093
     protocol: PLAINTEXT
 
-## Inter-broker and controller listener names (from your env vars)
+## Inter-broker and controller
 interBrokerListenerName: internal
 controllerListenerNames:
   - controller
 
-## Extra environment variables (additional Kafka configs from your setup)
+## Extra env vars
 extraEnvVars:
   - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
-    value: "true"  # From your env
+    value: "true"
   - name: ALLOW_PLAINTEXT_LISTENER
     value: "yes"
 
-## Security protocol map (from your KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP)
+## Security map
 listenerSecurityProtocolMap: |
   INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
 
-## Node-specific configs (for the single node)
+## Nodes
 nodes:
   - id: 1
-    host: kafka-headless.default.svc.cluster.local  # Internal reference
+    host: my-kafka-headless.roadride.svc.cluster.local
 
-## Healthcheck (aligned with your test command)
+## Probes (matching docker-compose healthcheck)
 livenessProbe:
   enabled: true
   initialDelaySeconds: 30
@@ -101,7 +98,6 @@ livenessProbe:
   timeoutSeconds: 5
   failureThreshold: 5
   successThreshold: 1
-  # Custom exec to match your "kafka-topics.sh --bootstrap-server kafka:9094 --list"
   exec:
     command:
       - /bin/bash
@@ -123,7 +119,6 @@ readinessProbe:
       - |
         /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list
 
-## Startup probe (helps with slow starts)
 startupProbe:
   enabled: true
   initialDelaySeconds: 30
@@ -131,43 +126,41 @@ startupProbe:
   timeoutSeconds: 5
   failureThreshold: 30
 
-## Service configuration
+## Services
 service:
-  type: ClusterIP  # Internal; external via separate service if needed
+  type: ClusterIP
   annotations: {}
-  loadBalancerIPs: []
-  loadBalancerSourceRanges: []
-  clusterIP: ""
 
 headlessService:
-  enabled: true  # Required for KRaft/statefulset discovery
-  annotations: {}
+  enabled: true
   type: ClusterIP
+  annotations: {}
 
+## External Access (NodePort for 9092; internal controller)
 externalAccess:
-  enabled: true  # To match your external port exposure
+  enabled: true
+  autoDiscovery:
+    enabled: false  # Avoids conflicts
   service:
-    type: NodePort  # Exposes external listener on host port 9092
+    type: NodePort
+    domain: ""  # Empty for NodePort; set to <node-ip> if needed post-install
     ports:
       external: 9092
+    nodePorts:
+      - 9092
     annotations: {}
-    domain: ""  # Not needed for NodePort; only for ClusterIP/Ingress
   loadBalancer:
-    enabled: false  # Set true for cloud LB
-    sourceRanges: []
-    annotations: {}
+    enabled: false
   ingress:
     enabled: false
-    # Add ingress config if needed (e.g., for path-based access)
-  # Fix for validation: Disable external controller service but provide internal domain for advertised listener
   controller:
     enabled: false
     service:
       type: ClusterIP
-      domain: kafka-headless.default.svc.cluster.local  # Internal DNS to satisfy validation; adjust if using different namespace
+      domain: my-kafka-headless.roadride.svc.cluster.local
       annotations: {}
 
-## Metrics (optional; enable if you have Prometheus)
+## Metrics (disabled)
 metrics:
   kafka:
     enabled: false
@@ -178,63 +171,28 @@ metrics:
   prometheusRule:
     enabled: false
 
-## Sidecars/init containers (none in your setup)
+## Other defaults
 initContainers: []
 sidecars: []
-
-## Node affinity/selector/tolerations (optional)
 nodeSelector: {}
 affinity: {}
 tolerations: []
-
-## Pod disruption budgets
 pdb:
   create: false
-  minAvailable: 1
-
-## Service account
 serviceAccount:
   create: true
-  annotations: {}
-  name: ""
-
-## RBAC (required for StatefulSet)
 rbac:
   create: true
-  rules: []
-
-## Pod security context
 podSecurityContext:
   enabled: true
-  fsGroup: 1001  # Bitnami default
-
-## Container security context
+  fsGroup: 1001
 containerSecurityContext:
   enabled: true
   runAsUser: 1001
   runAsNonRoot: true
-
-## Extra volumes/mounts (if needed beyond persistence)
 extraVolumes: []
 extraVolumeMounts: []
-
-## Network policies (optional)
 networkPolicy:
   enabled: false
-  ingress:
-    enabled: false
-    rules: []
-  egress:
-    enabled: false
-    rules: []
-
-## Autoscaling (disabled for single-node)
 autoscale:
   enabled: false
-  minReplicas: 1
-  maxReplicas: 3
-  targetCPUUtilizationPercentage: 80
-  # HPA config...
-
-## Other defaults not overridden
-# (e.g., zookeeper.enabled=false since kraft; deleteTopicEnable=true; etc.)
