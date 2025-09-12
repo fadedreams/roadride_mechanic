@@ -2,8 +2,8 @@ minikube delete --all
 minikube delete --profile=minikube
 
 eval $(minikube docker-env)
+minikube start --memory=7400
 minikube start
-minikube start --memory=7500
 minikube status
 
 kubectl create namespace roadride
@@ -24,6 +24,8 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
   $ helm status consul --namespace roadride
   $ helm get all consul --namespace roadride
 
+minikube addons enable storage-provisioner
+minikube addons enable default-storageclass
 helm repo add strimzi https://strimzi.io/charts/
 helm repo update
 helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride --set rbac.create=true
