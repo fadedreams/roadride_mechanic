@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -27,18 +28,18 @@ func main() {
 	// Set up MongoDB client options
 	clientOptions := options.Client().ApplyURI(mongoURI).SetConnectTimeout(10 * time.Second)
 
-	// Connect to MongoDB (v2 API: no ctx in Connect; use options only)
+	// Connect to MongoDB
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	defer client.Disconnect(context.Background())
 
-	// Create a context for operations
+	// Create a context for MongoDB operations
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Ping the MongoDB server (v2 API: pass ctx)
+	// Ping the MongoDB server
 	if err = client.Ping(ctx, nil); err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
@@ -62,6 +63,27 @@ func main() {
 		log.Fatalf("Failed to query document: %v", err)
 	}
 	fmt.Printf("Found mechanic: %+v\n", result)
+
+	// Set up HTTP server for health endpoint
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status": "ok"}`)
+	})
+
+	// Get port from environment or default to 8080
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Start HTTP server in a goroutine to avoid blocking
+	go func() {
+		log.Printf("Starting health endpoint server on port %s", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Fatalf("Failed to start HTTP server: %v", err)
+		}
+	}()
 
 	// Keep the app running to allow Kubernetes liveness/readiness probes
 	select {}

@@ -1,6 +1,6 @@
 eval $(minikube docker-env)
 minikube start
-minikube start --memory=7700
+minikube start --memory=7500
 minikube delete --profile=minikube
 minikube status
 kubectl create namespace roadride
