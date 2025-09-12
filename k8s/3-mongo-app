@@ -3,4 +3,8 @@ kubectl apply -f mongo-app-service.yaml
 kubectl apply -f mongo-app-deployment.yaml
 
 
+kubectl port-forward svc/mongo-app 8080:8080 -n roadride &
+curl http://localhost:8080/health
+
+
 
