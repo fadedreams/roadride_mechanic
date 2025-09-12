@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -14,8 +13,6 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/hamba/avro/v2"
 	"github.com/riferrei/srclient"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // RepairEvent matches the repair_event.avsc schema
@@ -41,19 +38,11 @@ type MechanicInfo struct {
 	Distance float64  `avro:"distance"`
 }
 
-// Mechanic for MongoDB storage
-type Mechanic struct {
-	ID    string `bson:"id"`
-	Name  string `bson:"name"`
-	Skill string `bson:"skill"`
-}
-
 func main() {
 	// Configuration
 	topic := "repair-events"
 	schemaRegistryURL := os.Getenv("SCHEMA_REGISTRY_URL")
 	kafkaBootstrapServers := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
-	mongoURI := os.Getenv("MONGO_URI")
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8087"
@@ -106,15 +95,6 @@ func main() {
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
-	// MongoDB client
-	clientOptions := options.Client().ApplyURI(mongoURI).SetConnectTimeout(10 * time.Second)
-	mongoClient, err := mongo.Connect(clientOptions)
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
-	}
-	defer mongoClient.Disconnect(context.Background())
-	collection := mongoClient.Database("repairdb").Collection("mechanics")
-
 	// HTTP server for health and status
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -122,7 +102,7 @@ func main() {
 	})
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"kafka_connected": true, "mongo_connected": true}`)
+		fmt.Fprintf(w, `{"kafka_connected": true}`)
 	})
 	go func() {
 		log.Printf("Starting HTTP server on port %s", port)
@@ -175,7 +155,7 @@ func main() {
 		close(deliveryChan)
 	}()
 
-	// Consume messages and store in MongoDB
+	// Consume messages and log them
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
 	for {
@@ -214,21 +194,6 @@ func main() {
 				continue
 			}
 			log.Printf("Received RepairEvent: %+v", event)
-
-			// Store mechanics in MongoDB
-			for _, mech := range event.Mechanics {
-				mechanic := Mechanic{
-					ID:    mech.ID,
-					Name:  mech.Name,
-					Skill: event.RepairType,
-				}
-				_, err := collection.InsertOne(context.Background(), mechanic)
-				if err != nil {
-					log.Printf("Failed to insert mechanic to MongoDB: %v", err)
-					continue
-				}
-				log.Printf("Stored mechanic in MongoDB: %+v", mechanic)
-			}
 		}
 	}
 }
