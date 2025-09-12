@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: mongo-app
-          image: fadedreams7/mongo-app:2
+          image: fadedreams7/mongo-app:3
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
