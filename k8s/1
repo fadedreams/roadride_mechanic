@@ -25,7 +25,7 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
   $ helm get all consul --namespace roadride
 
 
-kubectl apply -f kafka-deployment-external.yaml
+kubectl apply -f kafka-deployment.yaml
 echo "Hello from Minikube Kafka!" | kcat -b 192.168.49.2:30092 -t test-topic -P -c 1
 kcat -b 192.168.49.2:30092 -t test-topic -C -o beginning -c 10
 

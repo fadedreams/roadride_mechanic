@@ -1,0 +1,33 @@
+{
+  "type": "record",
+  "name": "RepairEvent",
+  "namespace": "repair.service",
+  "fields": [
+    {"name": "id", "type": "string"},
+    {"name": "user_id", "type": "string"},
+    {"name": "status", "type": "string"},
+    {"name": "repair_type", "type": "string"},
+    {"name": "total_price", "type": "double"},
+    {"name": "user_location", "type": {
+      "type": "record",
+      "name": "Location",
+      "fields": [
+        {"name": "longitude", "type": "double"},
+        {"name": "latitude", "type": "double"}
+      ]
+    }},
+    {"name": "mechanics", "type": {
+      "type": "array",
+      "items": {
+        "type": "record",
+        "name": "MechanicInfo",
+        "fields": [
+          {"name": "id", "type": "string"},
+          {"name": "name", "type": "string"},
+          {"name": "location", "type": "Location"},
+          {"name": "distance", "type": "double"}
+        ]
+      }
+    }}
+  ]
+}
