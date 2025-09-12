@@ -1,0 +1,6 @@
+kubectl apply -f app-configmap.yaml
+kubectl apply -f mongo-app-service.yaml
+kubectl apply -f mongo-app-deployment.yaml
+
+
+

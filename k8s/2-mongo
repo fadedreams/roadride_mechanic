@@ -1,3 +1,5 @@
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
 helm install mongodb bitnami/mongodb --namespace roadride -f mongodb-values.yaml
 
 m@server-o7x4mf:~/roadride_mechanic/k8s$ helm install mongodb bitnami/mongodb --namespace roadride -f ./mongodb-values.yaml

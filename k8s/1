@@ -1,6 +1,6 @@
 eval $(minikube docker-env)
 minikube start
-minikube start --memory=7500
+minikube start --memory=7700
 minikube delete --profile=minikube
 minikube status
 kubectl create namespace roadride
@@ -20,8 +20,6 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
 
   $ helm status consul --namespace roadride
   $ helm get all consul --namespace roadride
-
-
 
 helm repo add strimzi https://strimzi.io/charts/
 helm repo update
