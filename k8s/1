@@ -24,9 +24,7 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
   $ helm status consul --namespace roadride
   $ helm get all consul --namespace roadride
 
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-helm install my-kafka bitnami/kafka -f values-kafka.yaml 
+
 
 #Jaeger Operator Helm chart depends on cert-manager Custom Resource Definitions (CRDs)
 helm repo add jetstack https://charts.jetstack.io
