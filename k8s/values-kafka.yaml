@@ -45,7 +45,7 @@ kraft:
     - 1  # Single node ID from your setup
   # Controller quorum: Single node acts as both broker and controller
   controllers:
-    - 1@my-kafka-headless.default.svc.cluster.local:9093  # Internal headless service (use release name "my-kafka")
+    - 1@kafka-headless.default.svc.cluster.local:9093  # Internal headless service
 
 ## Listeners configuration (maps your KAFKA_CFG_LISTENERS and ADVERTISED_LISTENERS)
 listeners:
@@ -53,7 +53,7 @@ listeners:
     containerPort: 9094
     servicePort: 9094
     protocol: PLAINTEXT
-    advertisedHost: my-kafka-headless.default.svc.cluster.local  # Internal DNS for cluster services (e.g., repair-service, mechanic-service)
+    advertisedHost: kafka-headless.default.svc.cluster.local  # Internal DNS for cluster services (e.g., repair-service, mechanic-service)
     advertisedPort: 9094
   external:
     enabled: true
@@ -91,7 +91,7 @@ listenerSecurityProtocolMap: |
 ## Node-specific configs (for the single node)
 nodes:
   - id: 1
-    host: my-kafka-headless.default.svc.cluster.local  # Internal reference (use release name "my-kafka")
+    host: kafka-headless.default.svc.cluster.local  # Internal reference
 
 ## Healthcheck (aligned with your test command)
 livenessProbe:
@@ -151,6 +151,7 @@ externalAccess:
     ports:
       external: 9092
     annotations: {}
+    domain: ""  # Not needed for NodePort; only for ClusterIP/Ingress
   loadBalancer:
     enabled: false  # Set true for cloud LB
     sourceRanges: []
@@ -158,12 +159,12 @@ externalAccess:
   ingress:
     enabled: false
     # Add ingress config if needed (e.g., for path-based access)
-  # Fix for validation: Disable controller exposure, set ClusterIP, and provide domain
+  # Fix for validation: Disable external controller service but provide internal domain for advertised listener
   controller:
     enabled: false
     service:
-      type: ClusterIP  # Internal-only
-      domain: ""  # Satisfies validation for ClusterIP; empty uses default cluster domain
+      type: ClusterIP
+      domain: kafka-headless.default.svc.cluster.local  # Internal DNS to satisfy validation; adjust if using different namespace
       annotations: {}
 
 ## Metrics (optional; enable if you have Prometheus)
