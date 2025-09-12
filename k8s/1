@@ -5,6 +5,7 @@ eval $(minikube docker-env)
 minikube start
 minikube start --memory=7500
 minikube status
+
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride
 
@@ -25,7 +26,7 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
 
 helm repo add strimzi https://strimzi.io/charts/
 helm repo update
-helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride
+helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride --set rbac.create=true
 kubectl wait --for=condition=Available deployment/strimzi-cluster-operator -n roadride --timeout=300s
 
 helm repo add elastic https://helm.elastic.co

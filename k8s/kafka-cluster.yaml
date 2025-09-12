@@ -5,7 +5,7 @@ metadata:
   namespace: roadride
 spec:
   kafka:
-    version: 3.6.0
+    version: 3.7.0
     replicas: 1
     listeners:
       - name: plain
@@ -20,8 +20,15 @@ spec:
       auto.create.topics.enable: true
     storage:
       type: persistent-claim
-      size: 10Gi
+      size: 2Gi  # Reduced to avoid storage issues
       deleteClaim: false
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
   entityOperator:
     topicOperator: {}
     userOperator: {}
