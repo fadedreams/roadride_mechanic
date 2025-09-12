@@ -13,8 +13,8 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/hamba/avro/v2"
+	"github.com/hashicorp/consul/api"
 	"github.com/riferrei/srclient"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -44,9 +44,9 @@ type MechanicInfo struct {
 
 // Mechanic for MongoDB storage
 type Mechanic struct {
-	ID    string  `bson:"id"`
-	Name  string  `bson:"name"`
-	Skill string  `bson:"skill"`
+	ID    string `bson:"id"`
+	Name  string `bson:"name"`
+	Skill string `bson:"skill"`
 }
 
 func main() {
@@ -55,10 +55,34 @@ func main() {
 	schemaRegistryURL := os.Getenv("SCHEMA_REGISTRY_URL")
 	kafkaBootstrapServers := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
 	mongoURI := os.Getenv("MONGO_URI")
+	consulAddr := os.Getenv("CONSUL_ADDRESS")
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8087"
 	}
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "kafka-app"
+	}
+
+	// Initialize Consul client
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = consulAddr
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		log.Fatalf("Failed to create Consul client: %v", err)
+	}
+	serviceID := fmt.Sprintf("%s-%s", serviceName, os.Getenv("HOSTNAME"))
+	registration := &api.AgentServiceRegistration{
+		ID:      serviceID,
+		Name:    serviceName,
+		Port:    8087,
+		Address: "localhost",
+	}
+	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
+		log.Fatalf("Failed to register with Consul: %v", err)
+	}
+	log.Printf("Registered with Consul, service_id: %s", serviceID)
 
 	// Schema Registry client
 	srClient := srclient.CreateSchemaRegistryClient(schemaRegistryURL)
@@ -94,9 +118,9 @@ func main() {
 
 	// Kafka consumer
 	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  kafkaBootstrapServers,
-		"group.id":           "kafka-app-group",
-		"auto.offset.reset":  "earliest",
+		"bootstrap.servers": kafkaBootstrapServers,
+		"group.id":          "kafka-app-group",
+		"auto.offset.reset": "earliest",
 	})
 	if err != nil {
 		log.Fatalf("Failed to create consumer: %v", err)
@@ -123,7 +147,7 @@ func main() {
 	})
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"kafka_connected": true, "mongo_connected": true}`)
+		fmt.Fprintf(w, `{"kafka_connected": true, "mongo_connected": true, "consul_registered": true, "service_id": "%s"}`, serviceID)
 	})
 	go func() {
 		log.Printf("Starting HTTP server on port %s", port)
@@ -183,6 +207,11 @@ func main() {
 		select {
 		case sig := <-sigchan:
 			log.Printf("Caught signal %v: terminating", sig)
+			// Deregister from Consul
+			if err := consulClient.Agent().ServiceDeregister(serviceID); err != nil {
+				log.Printf("Failed to deregister from Consul: %v", err)
+			}
+			log.Printf("Deregistered from Consul, service_id: %s", serviceID)
 			return
 		default:
 			msg, err := consumer.ReadMessage(1 * time.Second)
@@ -195,7 +224,7 @@ func main() {
 			}
 			if len(msg.Value) < 5 || msg.Value[0] != 0 {
 				log.Printf("Invalid message format")
-				continue
+			 continue
 			}
 			schemaID := binary.BigEndian.Uint32(msg.Value[1:5])
 			schemaObj, err := srClient.GetSchema(int(schemaID))

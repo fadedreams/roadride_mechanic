@@ -1,7 +1,7 @@
-kubectl apply -f app-configmap.yaml
-kubectl apply -f kafka-deployment.yaml
-kubectl apply -f schema-registry-deployment.yaml
-
+kubectl apply -f k8s/app-configmap.yaml
+kubectl apply -f k8s/kafka-deployment.yaml
+kubectl apply -f k8s/schema-registry-deployment.yaml
+kubectl apply -f k8s/kafka-app/kafka-app-deployment.yaml
 # Restart port-forward
 kubectl port-forward svc/schema-registry-svc 8081:8081 -n roadride &
 
