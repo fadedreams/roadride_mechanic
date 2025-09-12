@@ -30,9 +30,9 @@ metadata:
     app: kafka
 spec:
   ports:
-  - port: 30000
+  - port: 9092
     targetPort: 9092
-    nodePort: 30000
+    nodePort: 30092
     protocol: TCP
     name: plaintext
   externalTrafficPolicy: Local
