@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-app
+  namespace: roadride
+spec:
+  type: NodePort
+  ports:
+    - port: 8089
+      targetPort: 8089
+      protocol: TCP
+      nodePort: 30081
+  selector:
+    app: consul-app
