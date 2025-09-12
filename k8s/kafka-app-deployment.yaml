@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: kafka-app
-        image: kafka-app:latest
+        image: fadedreams7/kafka-app:latest
         ports:
         - containerPort: 8087
           name: http
