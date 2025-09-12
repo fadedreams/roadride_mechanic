@@ -24,17 +24,9 @@ kubectl wait --for=condition=Available deployment/consul-server -n roadride --ti
   $ helm status consul --namespace roadride
   $ helm get all consul --namespace roadride
 
-minikube addons enable storage-provisioner
-minikube addons enable default-storageclass
-helm repo add strimzi https://strimzi.io/charts/
+helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
-helm install strimzi strimzi/strimzi-kafka-operator --namespace roadride --set rbac.create=true
-kubectl wait --for=condition=Available deployment/strimzi-cluster-operator -n roadride --timeout=300s
-
-helm repo add elastic https://helm.elastic.co
-helm repo update
-helm install elastic-operator elastic/eck-operator --namespace roadride
-kubectl wait --for=condition=Available deployment/elastic-operator -n roadride --timeout=300s
+helm install my-kafka bitnami/kafka -f values.yaml
 
 #Jaeger Operator Helm chart depends on cert-manager Custom Resource Definitions (CRDs)
 helm repo add jetstack https://charts.jetstack.io

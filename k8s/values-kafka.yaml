@@ -1,0 +1,232 @@
+# Bitnami Kafka Helm Chart values.yaml adapted from docker-compose.yaml
+# Full defaults: https://github.com/bitnami/charts/blob/main/bitnami/kafka/values.yaml
+
+## Global Docker image parameters
+image:
+  registry: docker.io
+  repository: bitnami/kafka
+  tag: 3.8.0-debian-12-r1  # Matches your 3.6 base; update to latest if needed (3.8.0 as of Sep 2025)
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+## Authentication (disabled for PLAINTEXT, like your setup)
+auth:
+  enabled: false  # Set to true for SASL/SCRAM if needed
+
+## Number of Kafka brokers (single-node like your setup)
+replicaCount: 1
+
+## Persistence for /bitnami/kafka (maps to your kafka-data volume)
+persistence:
+  enabled: true
+  storageClass: ""  # Use default StorageClass (e.g., local-path for dev)
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi  # Adjust based on needs; your Docker has no limit
+  annotations: {}
+
+## Resource limits (aligned with your MongoDB example)
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1.0
+    memory: 2Gi
+
+## KRaft mode (ZooKeeper-less, like your setup)
+kraft:
+  enabled: true
+
+## KRaft-specific configurations
+kraft:
+  clusterId: XqZrTh1yT8qXwjsn1a6L9A  # From your KAFKA_KRAFT_CLUSTER_ID
+  nodeIds:
+    - 1  # Single node ID from your setup
+  # Controller quorum: Single node acts as both broker and controller
+  controllers:
+    - 1@kafka-headless.default.svc.cluster.local:9093  # Internal headless service
+
+## Listeners configuration (maps your KAFKA_CFG_LISTENERS and ADVERTISED_LISTENERS)
+listeners:
+  internal:
+    containerPort: 9094
+    servicePort: 9094
+    protocol: PLAINTEXT
+    advertisedHost: kafka-headless.default.svc.cluster.local  # Internal DNS for cluster services (e.g., repair-service, mechanic-service)
+    advertisedPort: 9094
+  external:
+    enabled: true
+    containerPort: 9092
+    servicePort: 9092
+    protocol: PLAINTEXT
+    # For LoadBalancer/NodePort external access (maps your EXTERNAL://localhost:9092)
+    service:
+      type: NodePort  # Or LoadBalancer for cloud; exposes on host:9092
+      nodePorts:
+        - 9092  # Maps to your ports: - "9092:9092"
+      loadBalancerIPs: []  # Set if using LoadBalancer
+      loadBalancerSourceRanges: []  # Restrict in prod
+  controller:
+    containerPort: 9093
+    servicePort: 9093
+    protocol: PLAINTEXT
+
+## Inter-broker and controller listener names (from your env vars)
+interBrokerListenerName: internal
+controllerListenerNames:
+  - controller
+
+## Extra environment variables (additional Kafka configs from your setup)
+extraEnvVars:
+  - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+    value: "true"  # From your env
+  - name: ALLOW_PLAINTEXT_LISTENER
+    value: "yes"
+
+## Security protocol map (from your KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP)
+listenerSecurityProtocolMap: |
+  INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+
+## Node-specific configs (for the single node)
+nodes:
+  - id: 1
+    host: kafka-headless.default.svc.cluster.local  # Internal reference
+
+## Healthcheck (aligned with your test command)
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+  successThreshold: 1
+  # Custom exec to match your "kafka-topics.sh --bootstrap-server kafka:9094 --list"
+  exec:
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+  successThreshold: 1
+  exec:
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list
+
+## Startup probe (helps with slow starts)
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+## Service configuration
+service:
+  type: ClusterIP  # Internal; external via separate service if needed
+  annotations: {}
+  loadBalancerIPs: []
+  loadBalancerSourceRanges: []
+  clusterIP: ""
+
+headlessService:
+  enabled: true  # Required for KRaft/statefulset discovery
+  annotations: {}
+  type: ClusterIP
+
+externalAccess:
+  enabled: true  # To match your external port exposure
+  service:
+    type: NodePort  # Exposes external listener on host port 9092
+    ports:
+      external: 9092
+    annotations: {}
+  loadBalancer:
+    enabled: false  # Set true for cloud LB
+    sourceRanges: []
+    annotations: {}
+  ingress:
+    enabled: false
+    # Add ingress config if needed (e.g., for path-based access)
+
+## Metrics (optional; enable if you have Prometheus)
+metrics:
+  kafka:
+    enabled: false
+  jmx:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+  prometheusRule:
+    enabled: false
+
+## Sidecars/init containers (none in your setup)
+initContainers: []
+sidecars: []
+
+## Node affinity/selector/tolerations (optional)
+nodeSelector: {}
+affinity: {}
+tolerations: []
+
+## Pod disruption budgets
+pdb:
+  create: false
+  minAvailable: 1
+
+## Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+## RBAC (required for StatefulSet)
+rbac:
+  create: true
+  rules: []
+
+## Pod security context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001  # Bitnami default
+
+## Container security context
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsNonRoot: true
+
+## Extra volumes/mounts (if needed beyond persistence)
+extraVolumes: []
+extraVolumeMounts: []
+
+## Network policies (optional)
+networkPolicy:
+  enabled: false
+  ingress:
+    enabled: false
+    rules: []
+  egress:
+    enabled: false
+    rules: []
+
+## Autoscaling (disabled for single-node)
+autoscale:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  # HPA config...
+
+## Other defaults not overridden
+# (e.g., zookeeper.enabled=false since kraft; deleteTopicEnable=true; etc.)
