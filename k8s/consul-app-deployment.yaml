@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: consul-app
-          image: fadedreams7/consul-app:1
+          image: fadedreams7/consul-app:2
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
