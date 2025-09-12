@@ -17,13 +17,25 @@ RUN go mod download
 COPY main.go ./
 COPY repair_event.avsc ./
 
-# Build the Go app
-RUN CGO_ENABLED=1 GOOS=linux go build -o /kafka-app
+# Build the Go app with verbose output for debugging
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -v -o /kafka-app
 
-# Use a minimal base image for the final image
-FROM alpine:latest
+# Use a Debian-based image for the final stage to ensure compatibility
+FROM debian:bookworm-slim
+
 # Install runtime dependencies for librdkafka
-RUN apk add --no-cache librdkafka
+RUN apt-get update && apt-get install -y \
+    librdkafka1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary and schema
 COPY --from=builder /kafka-app /kafka-app
 COPY --from=builder /app/repair_event.avsc /repair_event.avsc
+
+# Ensure the binary is executable
+RUN chmod +x /kafka-app
+
+# Verify the binary exists
+RUN ls -l /kafka-app
+
 ENTRYPOINT ["/kafka-app"]
