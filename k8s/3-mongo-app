@@ -6,5 +6,25 @@ kubectl apply -f mongo-app-deployment.yaml
 kubectl port-forward svc/mongo-app 8080:8080 -n roadride &
 curl http://localhost:8080/health
 
+#access mongo-app from outside the minikube
 
+minikube ssh
+docker@minikube:~$ curl http://localhost:30080/health
+{"status": "ok"}
+docker@minikube:~$ exit
+logout
+m@server-zaedfr:~/roadride_mechanic/k8s$ minikube ip
+192.168.49.2
+m@server-zaedfr:~/roadride_mechanic/k8s$ curl http://192.168.49.2:30080/health
+{"status": "ok"}
 
+#access mongo-app from outside server
+MINIKUBE_IP=$(minikube ip)  # 192.168.49.2
+NODE_PORT=30080
+nohup socat TCP-LISTEN:30080,fork,reuseaddr TCP:${MINIKUBE_IP}:${NODE_PORT} > socat-bridge.log 2>&1 &
+
+sudo ufw allow 30080/tcp
+sudo ufw reload
+sudo ufw status | grep 30080
+
+curl http://31.59.120.154:30080/health
