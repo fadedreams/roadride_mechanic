@@ -158,6 +158,12 @@ externalAccess:
   ingress:
     enabled: false
     # Add ingress config if needed (e.g., for path-based access)
+  # Fix for validation error: Disable controller external access (internal-only in single-node KRaft)
+  controller:
+    enabled: false
+    service:
+      type: ClusterIP  # Explicitly set to avoid LoadBalancer default
+      annotations: {}
 
 ## Metrics (optional; enable if you have Prometheus)
 metrics:
