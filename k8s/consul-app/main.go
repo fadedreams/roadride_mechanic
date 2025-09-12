@@ -55,7 +55,7 @@ func main() {
 			Interval: "10s",
 			Timeout:  "5s",
 			// Increase DeregisterCriticalServiceAfter to give more buffer
-			DeregisterCriticalServiceAfter: "1m",
+			DeregisterCriticalServiceAfter: "2m",
 		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
