@@ -1,0 +1,21 @@
+docker build -t fadedreams7/consul-app:1 ./consul-app
+docker push fadedreams7/consul-app:1
+
+kubectl apply -f app-configmap.yaml
+kubectl apply -f consul-app-deployment.yaml
+kubectl apply -f consul-app-service.yaml
+
+kubectl get pods -n roadride
+kubectl describe pod -l app=consul-app -n roadride  # Check for image pull success
+kubectl logs -l app=consul-app -n roadride  # Check application logs
+
+kubectl port-forward svc/consul-app 8089:8089 -n roadride &
+curl http://localhost:8089/health
+curl http://localhost:8089/consul-status
+
+MINIKUBE_IP=$(minikube ip)
+curl http://${MINIKUBE_IP}:30081/health
+curl http://${MINIKUBE_IP}:30081/consul-status
+
+kubectl rollout restart deployment/consul-app -n roadride
+kubectl scale deployment/consul-app --replicas=3 -n roadride

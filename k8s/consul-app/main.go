@@ -73,13 +73,13 @@ func main() {
 	}
 
 	// Deregister service on exit
-	defer func() {
-		if err := client.Agent().ServiceDeregister(serviceID); err != nil {
-			log.Printf("Failed to deregister service %s: %v", serviceID, err)
-		} else {
-			log.Printf("Deregistered service %s from Consul", serviceID)
-		}
-	}()
+	// defer func() {
+	// 	if err := client.Agent().ServiceDeregister(serviceID); err != nil {
+	// 		log.Printf("Failed to deregister service %s: %v", serviceID, err)
+	// 	} else {
+	// 		log.Printf("Deregistered service %s from Consul", serviceID)
+	// 	}
+	// }()
 
 	// Health endpoint
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
