@@ -2,7 +2,10 @@ module consul-app
 
 go 1.25.1
 
-require github.com/hashicorp/consul/api v1.32.1
+require (
+	github.com/gorilla/mux v1.8.1
+	github.com/hashicorp/consul/api v1.32.1
+)
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
