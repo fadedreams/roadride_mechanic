@@ -29,6 +29,8 @@ kubectl apply -f kafka-deployment.yaml
 echo "Hello from Minikube Kafka!" | kcat -b 192.168.49.2:30092 -t test-topic -P -c 1
 kcat -b 192.168.49.2:30092 -t test-topic -C -o beginning -c 10
 
+
+
 #Jaeger Operator Helm chart depends on cert-manager Custom Resource Definitions (CRDs)
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
