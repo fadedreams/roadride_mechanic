@@ -50,12 +50,6 @@ func main() {
 		Name:    serviceName,
 		Port:    8089,
 		Address: "localhost", // Use localhost since health check is internal
-		Check: &api.AgentServiceCheck{
-			HTTP:                           fmt.Sprintf("http://localhost:%s/health", servicePort),
-			Interval:                       "10s",
-			Timeout:                        "10s", // Increase timeout
-			DeregisterCriticalServiceAfter: "5m", // Increase to 5 minutes
-		},
 	}
 	if err := consulClient.Agent().ServiceRegister(registration); err != nil {
 		logger.Error("Failed to register with Consul", "error", err, "app", "consul-app")
@@ -89,6 +83,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+
 	// Handle graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
