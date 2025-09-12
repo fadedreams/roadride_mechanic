@@ -5,8 +5,8 @@ metadata:
   namespace: roadride
 spec:
   kafka:
-    version: 3.8.0  # Latest stable Kafka version
-    replicas: 1  # Start with 1 broker for Minikube (scale up later if needed)
+    version: 3.8.0
+    replicas: 1
     listeners:
       - name: plain
         port: 9092
