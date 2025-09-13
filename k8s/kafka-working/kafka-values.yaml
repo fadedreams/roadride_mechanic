@@ -33,3 +33,5 @@ zookeeper:
   enabled: false
 kraft:
   enabled: true
+externalAccess:
+  enabled: false  # Explicitly disable externalAccess
