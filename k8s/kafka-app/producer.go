@@ -44,13 +44,20 @@ func main() {
 	schemaID := schemaObj.ID()
 	fmt.Printf("Schema registered successfully with ID: %d\n", schemaID)
 
-	// Kafka producer with SASL authentication for Minikube
+	// Get CLIENT_PASSWORD from environment variable
+	clientPassword := os.Getenv("CLIENT_PASSWORD")
+	if clientPassword == "" {
+		panic("CLIENT_PASSWORD environment variable is not set")
+	}
+	fmt.Printf("Using client password from environment: %s\n", clientPassword[:3]+"...") // Show first 3 chars for security
+
+	// Kafka producer with SASL authentication using environment variable
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers":        "localhost:9092", // Minikube forwarded port
 		"security.protocol":        "SASL_PLAINTEXT",
 		"sasl.mechanism":          "PLAIN",
 		"sasl.username":           "user1",
-		"sasl.password":           "password1", // From your kafka-values.yaml
+		"sasl.password":           clientPassword, // Use environment variable
 		"compression.type":        "snappy",
 		"enable.idempotence":      true,
 		"acks":                    "all",
