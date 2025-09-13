@@ -1,9 +1,9 @@
-# values.yaml for Kafka Helm chart with SASL/PLAIN authentication
+# kafka-values.yaml
 auth:
   clientProtocol: sasl
   interBrokerProtocol: sasl
   sasl:
-    mechanism: PLAIN
+    mechanism: SCRAM-SHA-256  # Align with SCRAM-SHA-256
     jaas:
       users:
         - username: user1
@@ -24,3 +24,17 @@ zookeeper:
   enabled: false
 kraft:
   enabled: true
+# Explicitly configure listeners
+extraEnvVars:
+  - name: KAFKA_CFG_LISTENERS
+    value: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+  - name: KAFKA_CFG_ADVERTISED_LISTENERS
+    value: "INTERNAL://kafka:9094,EXTERNAL://localhost:9092"
+  - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+    value: "INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
+  - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+    value: "INTERNAL"
+  - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+    value: "CONTROLLER"
+  - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+    value: "true"
