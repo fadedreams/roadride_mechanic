@@ -1,3 +1,4 @@
+// export CLIENT_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
 package main
 
 import (
@@ -16,10 +17,13 @@ type User struct {
 }
 
 func main() {
+	// Topic to produce to (align with Minikube script)
 	topic := "test-topic"
 
+	// Schema Registry client
 	client := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 
+	// Load the Avro schema from file
 	schemaBytes, err := os.ReadFile("user.avsc")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to read schema file: %v", err))
@@ -27,11 +31,13 @@ func main() {
 	schemaStr := string(schemaBytes)
 	fmt.Printf("Loaded schema: %s\n", schemaStr)
 
+	// Parse the Avro schema for serialization
 	schema, err := avro.Parse(schemaStr)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to parse schema: %v", err))
 	}
 
+	// Register the schema with Schema Registry
 	schemaObj, err := client.CreateSchema(topic+"-value", schemaStr, srclient.Avro)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to register schema: %v", err))
@@ -39,11 +45,13 @@ func main() {
 	schemaID := schemaObj.ID()
 	fmt.Printf("Schema registered successfully with ID: %d\n", schemaID)
 
+	// Retrieve the client password from the Kubernetes secret
 	clientPassword := os.Getenv("CLIENT_PASSWORD")
 	if clientPassword == "" {
 		panic("CLIENT_PASSWORD environment variable not set")
 	}
 
+	// Kafka producer with SASL_PLAINTEXT
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers":  "localhost:9092",
 		"security.protocol":  "SASL_PLAINTEXT",
@@ -54,29 +62,33 @@ func main() {
 		"enable.idempotence": "true",
 		"acks":               "all",
 		"retries":            "3",
-		"client.dns.lookup":  "use_all_dns_ips", // Force use of bootstrap server
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create producer: %v", err))
 	}
 	defer p.Close()
 
+	// Sample message
 	user := User{Name: "John Doe", Age: 30}
 	fmt.Printf("Serializing user: %+v\n", user)
 
+	// Serialize to Avro using hamba/avro
 	payload, err := avro.Marshal(schema, &user)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to serialize payload: %v", err))
 	}
 	fmt.Printf("Serialized payload: %v\n", payload)
 
+	// Add Schema Registry wire format: magic byte (0) + 4-byte schema ID
 	encodedPayload := make([]byte, 5+len(payload))
-	encodedPayload[0] = 0
+	encodedPayload[0] = 0 // Magic byte
 	binary.BigEndian.PutUint32(encodedPayload[1:5], uint32(schemaID))
 	copy(encodedPayload[5:], payload)
 
+	// Delivery report channel
 	deliveryChan := make(chan kafka.Event)
 
+	// Produce message
 	err = p.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          encodedPayload,
@@ -85,6 +97,7 @@ func main() {
 		panic(fmt.Sprintf("Failed to produce message: %v", err))
 	}
 
+	// Wait for delivery report
 	e := <-deliveryChan
 	m := e.(*kafka.Message)
 	if m.TopicPartition.Error != nil {

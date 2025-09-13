@@ -27,6 +27,10 @@ controller:
       value: "INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
     - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
       value: "INTERNAL"
+    - name: KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL
+      value: PLAIN
+    - name: KAFKA_CFG_SASL_MECHANISM
+      value: PLAIN
 broker:
   replicaCount: 0
 zookeeper:
@@ -34,4 +38,10 @@ zookeeper:
 kraft:
   enabled: true
 externalAccess:
-  enabled: false  # Explicitly disable externalAccess
+  enabled: true
+  controller:
+    service:
+      type: NodePort
+      nodePorts:
+        - 30092  # Custom NodePort for controller-0 (in 30000-32767 range)
+      domain: "localhost"  # Advertise localhost for port-forwarding
