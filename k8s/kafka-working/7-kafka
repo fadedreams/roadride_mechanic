@@ -1,0 +1,37 @@
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+eval $(minikube docker-env)
+minikube start --memory=7500
+kubectl create namespace roadride
+kubectl config set-context --current --namespace=roadride
+
+helm install kafka bitnami/kafka \
+  -f kafka-values.yaml \
+  --namespace roadride
+
+kubectl port-forward svc/kafka 9092:9092 -n roadride &
+
+helm install schema-registry bitnami/schema-registry \
+  -f sr-values.yaml \
+  --namespace roadride
+
+kubectl port-forward svc/schema-registry 8081:8081 -n roadride &
+
+kubectl apply -f kafka-client.yaml
+
+CLIENT_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
+echo $CLIENT_PASSWORD  # Verify it (e.g., it might be something like "abc123")
+
+
+kubectl delete -f kafka-client.yaml
+kubectl apply -f kafka-client.yaml
+kubectl exec -it kafka-client -n roadride -- /bin/sh
+
+./kafka-topics.sh --delete --topic test-topic --bootstrap-server kafka.roadride.svc.cluster.local:9092 --command-config /tmp/client.properties
+./kafka-topics.sh --create --topic test-topic --bootstrap-server kafka.roadride.svc.cluster.local:9092 --partitions 1 --replication-factor 1 --config retention.ms=86400000 --command-config /tmp/client.properties  # Sets 1-day retention explicitly
+#producer
+./kafka-console-producer.sh --bootstrap-server kafka.roadride.svc.cluster.local:9092 --topic test-topic --producer.config /tmp/client.properties
+
+#consumer
+./kafka-console-consumer.sh --bootstrap-server kafka.roadride.svc.cluster.local:9092 --topic test-topic --from-beginning --partition 0 --consumer.config /tmp/c
