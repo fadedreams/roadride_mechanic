@@ -7,7 +7,7 @@ auth:
     jaas:
       users:
         - username: user1
-          password: password1  # This is the base password; Helm generates the actual secret
+          password: password1
         - username: admin
           password: adminpassword
 persistence:
@@ -19,21 +19,17 @@ resources:
 controller:
   replicaCount: 1
 broker:
-  replicaCount: 0  # Single-node KRaft mode
+  replicaCount: 0
 zookeeper:
   enabled: false
 kraft:
   enabled: true
 
-# External access configuration
+# Enable external access
 externalAccess:
   enabled: true
   service:
-    type: ClusterIP  # Use ClusterIP with port-forwarding; avoids LoadBalancer costs
-    port: 9092
-  hostPort:
-    enabled: true
-    ports:
-      - 9092  # Binds Kafka's external port to host's 9092
-  advertisedHostName: localhost  # Advertises localhost for external clients
-  advertisedHostNameType: hostname  # Use hostname (localhost) in advertised.listeners
+    type: NodePort
+    # Optional: LoadBalancer (use if you have MetalLB or cloud LB; NodePort is fine for Minikube)
+    # loadBalancerIPs: ["<your-host-ip>"]  # e.g., your machine's IP if using LoadBalancer
+  domain: ""  # Leave empty; will use localhost
