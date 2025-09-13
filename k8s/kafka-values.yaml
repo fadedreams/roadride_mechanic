@@ -3,7 +3,7 @@ auth:
   clientProtocol: sasl
   interBrokerProtocol: sasl
   sasl:
-    mechanism: SCRAM-SHA-256  # Align with SCRAM-SHA-256
+    mechanism: PLAIN
     jaas:
       users:
         - username: user1
