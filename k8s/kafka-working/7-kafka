@@ -34,4 +34,4 @@ kubectl exec -it kafka-client -n roadride -- /bin/sh
 ./kafka-console-producer.sh --bootstrap-server kafka.roadride.svc.cluster.local:9092 --topic test-topic --producer.config /tmp/client.properties
 
 #consumer
-./kafka-console-consumer.sh --bootstrap-server kafka.roadride.svc.cluster.local:9092 --topic test-topic --from-beginning --partition 0 --consumer.config /tmp/c
+./kafka-console-consumer.sh --bootstrap-server kafka.roadride.svc.cluster.local:9092 --topic test-topic --from-beginning --partition 0 --consumer.config /tmp/client.properties
