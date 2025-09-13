@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/hamba/avro/v2"
@@ -49,24 +50,32 @@ func main() {
 	if clientPassword == "" {
 		panic("CLIENT_PASSWORD environment variable is not set")
 	}
-	fmt.Printf("Using client password from environment: %s\n", clientPassword[:3]+"...") // Show first 3 chars for security
+	fmt.Printf("Using client password from environment: %s\n", clientPassword[:3]+"...")
 
-	// Kafka producer with SASL authentication using environment variable
+	// Kafka producer configuration - add critical settings to avoid DNS resolution
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
-		"bootstrap.servers":        "localhost:9092", // Minikube forwarded port
+		"bootstrap.servers":        "localhost:9092", // Use localhost due to port-forward
 		"security.protocol":        "SASL_PLAINTEXT",
 		"sasl.mechanism":          "PLAIN",
 		"sasl.username":           "user1",
-		"sasl.password":           clientPassword, // Use environment variable
+		"sasl.password":           clientPassword,
 		"compression.type":        "snappy",
 		"enable.idempotence":      true,
 		"acks":                    "all",
 		"retries":                 3,
+		"message.timeout.ms":      5000, // Shorter timeout
+		"socket.timeout.ms":       3000, // Shorter socket timeout
+		"metadata.request.timeout.ms": 3000, // Shorter metadata timeout
+		"client.dns.lookup":       "use_all_dns_ips", // Better DNS handling
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create producer: %v", err))
 	}
 	defer p.Close()
+
+	// Wait for metadata to be available
+	fmt.Println("Waiting for Kafka metadata...")
+	time.Sleep(3 * time.Second)
 
 	// Sample message
 	user := User{Name: "John Doe", Age: 30}
@@ -79,7 +88,7 @@ func main() {
 	}
 	fmt.Printf("Serialized payload: %v\n", payload)
 
-	// Add Schema Registry wire format: magic byte (0) + 4-byte schema ID
+	// Add Schema Registry wire format
 	encodedPayload := make([]byte, 5+len(payload))
 	encodedPayload[0] = 0 // Magic byte
 	binary.BigEndian.PutUint32(encodedPayload[1:5], uint32(schemaID))
@@ -88,7 +97,7 @@ func main() {
 	// Delivery report channel
 	deliveryChan := make(chan kafka.Event)
 
-	// Produce message
+	// Produce message with timeout
 	err = p.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          encodedPayload,
@@ -97,14 +106,18 @@ func main() {
 		panic(fmt.Sprintf("Failed to produce message: %v", err))
 	}
 
-	// Wait for delivery report
-	e := <-deliveryChan
-	m := e.(*kafka.Message)
-	if m.TopicPartition.Error != nil {
-		fmt.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
-	} else {
-		fmt.Printf("Delivered message to topic %s [%d] at offset %v\n",
-			*m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+	// Wait for delivery report with timeout
+	select {
+	case e := <-deliveryChan:
+		m := e.(*kafka.Message)
+		if m.TopicPartition.Error != nil {
+			fmt.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
+		} else {
+			fmt.Printf("Delivered message to topic %s [%d] at offset %v\n",
+				*m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+		}
+	case <-time.After(10 * time.Second):
+		fmt.Println("Delivery timeout: message not delivered within 10 seconds")
 	}
 
 	close(deliveryChan)
