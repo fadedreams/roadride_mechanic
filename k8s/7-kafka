@@ -24,3 +24,5 @@ kubectl apply -f kafka-client.yaml
 CLIENT_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
 echo $CLIENT_PASSWORD  # Verify it (e.g., it might be something like "abc123")
 
+kubectl exec -it kafka-client -n roadride -- /bin/bash
+

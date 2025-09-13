@@ -6,9 +6,9 @@ metadata:
 spec:
   containers:
   - name: kafka-client
-    image: confluentinc/cp-kafka:latest
+    image: bitnami/kafka:3.7
     command: ["/bin/bash"]
-    args: ["-c", "sleep infinity"]  # Keeps the pod running for interactive use
+    args: ["-c", "sleep infinity"]
     volumeMounts:
     - name: client-config
       mountPath: /tmp/client.properties
@@ -32,5 +32,5 @@ data:
   client.properties: |
     bootstrap.servers=kafka.roadride.svc.cluster.local:9092
     security.protocol=SASL_PLAINTEXT
-    sasl.mechanism=PLAIN  # Change from SCRAM-SHA-256
+    sasl.mechanism=PLAIN
     sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="user1" password="vq9zGVCbwz";
