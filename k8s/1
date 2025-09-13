@@ -2,7 +2,7 @@ minikube delete --all
 minikube delete --profile=minikube
 
 eval $(minikube docker-env)
-minikube start --memory=7400
+minikube start --memory=7500
 minikube start
 minikube status
 
