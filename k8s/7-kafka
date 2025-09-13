@@ -24,14 +24,3 @@ kubectl apply -f kafka-client.yaml
 CLIENT_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
 echo $CLIENT_PASSWORD  # Verify it (e.g., it might be something like "abc123")
 
-client.properties:
-security.protocol=SASL_PLAINTEXT
-sasl.mechanism=SCRAM-SHA-256
-sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="user1" password="${CLIENT_PASSWORD}";
-
-docker run -it --rm \
-  --network minikube \
-  -v $(pwd)/client.properties:/tmp/client.properties \
-  -e CLIENT_PASSWORD="$CLIENT_PASSWORD" \
-  confluentinc/cp-kafka:latest \
-  bash
