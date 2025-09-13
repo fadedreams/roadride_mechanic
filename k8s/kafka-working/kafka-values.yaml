@@ -18,18 +18,18 @@ resources:
     cpu: 250m
 controller:
   replicaCount: 1
+  extraEnvVars:
+    - name: KAFKA_CFG_LISTENERS
+      value: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+    - name: KAFKA_CFG_ADVERTISED_LISTENERS
+      value: "INTERNAL://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9094,EXTERNAL://localhost:9092,CONTROLLER://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9093"
+    - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+      value: "INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
+    - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+      value: "INTERNAL"
 broker:
   replicaCount: 0
 zookeeper:
   enabled: false
 kraft:
   enabled: true
-
-# Enable external access
-externalAccess:
-  enabled: true
-  service:
-    type: NodePort
-    # Optional: LoadBalancer (use if you have MetalLB or cloud LB; NodePort is fine for Minikube)
-    # loadBalancerIPs: ["<your-host-ip>"]  # e.g., your machine's IP if using LoadBalancer
-  domain: ""  # Leave empty; will use localhost
