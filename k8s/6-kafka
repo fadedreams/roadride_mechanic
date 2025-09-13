@@ -2,6 +2,8 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 
 
+eval $(minikube docker-env)
+minikube start --memory=7500
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride
 
@@ -9,10 +11,13 @@ helm install kafka bitnami/kafka \
   -f kafka-values.yaml \
   --namespace roadride
 
+kubectl port-forward svc/kafka 9092:9092 -n roadride &
+
 helm install schema-registry bitnami/schema-registry \
   -f sr-values.yaml \
   --namespace roadride
 
+kubectl port-forward svc/schema-registry 8081:8081 -n roadride &
 
 PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
 echo $PASSWORD
@@ -34,8 +39,10 @@ kafka-configs.sh --bootstrap-server kafka:9094 --alter --add-config 'SCRAM-SHA-2
 exit
 
 kubectl exec -it kcat-client -n roadride -- bash
-echo -e "Hello, Kafka!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
-kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -C
+## 9094 works not 9092
+echo -e 'Hello, Kafka!\nSecond message' | kcat -b kafka:9094 -F /tmp/client.properties -t test -P
+#echo -e "Hello, Kafka\!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
+#kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -C
 
 kubectl logs schema-registry-0 -n roadride
 ============
