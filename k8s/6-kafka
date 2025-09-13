@@ -1,3 +1,48 @@
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 
+
+kubectl create namespace roadride
+kubectl config set-context --current --namespace=roadride
+
+helm install kafka bitnami/kafka \
+  -f kafka-values.yaml \
+  --namespace roadride
+
+helm install schema-registry bitnami/schema-registry \
+  -f sr-values.yaml \
+  --namespace roadride
+
+
+PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
+echo $PASSWORD
+
+kubectl run kcat-client --restart='Never' --image=debian:12 --namespace roadride --command -- sleep infinity
+
+kubectl exec -it kcat-client --namespace roadride -- bash
+apt-get update
+apt-get install -y kcat
+exit
+
+echo -e "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-256\nsasl.username=user1\nsasl.password=$PASSWORD" > client.properties
+kubectl cp client.properties kcat-client:/tmp/client.properties -n roadride
+rm client.properties
+
+kubectl exec -it kcat-client -n roadride -- bash
+echo -e "Hello, Kafka\!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
+
+#if auth errors
+kubectl get secret kafka-user-passwords -n roadride -o jsonpath='{.data.client-passwords}' | base64 -d
+kubectl delete secret kafka-user-passwords -n roadride
+helm upgrade kafka bitnami/kafka -f kafka-values.yaml --namespace roadride
+kubectl get secret kafka-user-passwords -n roadride -o jsonpath='{.data.client-passwords}' | base64 -d
+echo -e "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.username=user1\nsasl.password=k9g7myOxKx" > client.properties
+kubectl cp client.properties kcat-client:/tmp/client.properties -n roadride
+kubectl exec -it kcat-client -n roadride -- bash
+  cat /tmp/client.properties
+  echo -e "Hello, Kafka\!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
+  kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -C -o beginning
+  
+  
+	
+
