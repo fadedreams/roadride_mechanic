@@ -1,6 +1,6 @@
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
-
+confluentinc/cp-kafka
 
 eval $(minikube docker-env)
 minikube start --memory=7500
@@ -19,8 +19,8 @@ helm install schema-registry bitnami/schema-registry \
 
 kubectl port-forward svc/schema-registry 8081:8081 -n roadride &
 
-PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
-echo $PASSWORD
+KAFKA_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
+echo $KAFKA_PASSWORD  # Verify it's correct (should be a hashed-like string)
 
 kubectl run kcat-client --restart='Never' --image=debian:12 --namespace roadride --command -- sleep infinity
 
