@@ -1,41 +1,9 @@
-# Single-node Elasticsearch config for Minikube (dev only)
-clusterName: "elasticsearch"
-
-# Single node
-replicas: 1
-
-# Roles as a LIST for single-node (all roles on one pod)
-roles:
-  - master
-  - data
-  - ingest
-  - ml  # Optional: machine learning
-
-# Disable security (dev only; not recommended for prod)
-esConfig:
-  elasticsearch.yml: |
-    xpack.security.enabled: false
-    discovery.type: single-node
-
-# Note: For single-node, initial_master_nodes is auto-handled by the chart
-
-# Low resources for Minikube
-esJavaOpts: "-Xmx512m -Xms512m"
 resources:
   requests:
-    cpu: "100m"
-    memory: "512Mi"
+    cpu: "200m"
+    memory: "200Mi"
   limits:
-    cpu: "1000m"
-    memory: "1024Mi"
+    cpu: "500m"
+    memory: "1Gi"
 
-# Small persistent volume
-volumeClaimTemplate:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: ""  # Use Minikube's default
-
-# Allow co-location on single node
 antiAffinity: "soft"

@@ -3,3 +3,7 @@ kubectl config set-context --current --namespace=roadride
 
 helm repo add elastic https://helm.elastic.co
 helm repo update
+
+helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
+helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
+helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
