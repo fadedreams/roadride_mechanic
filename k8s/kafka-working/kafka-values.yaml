@@ -20,11 +20,11 @@ controller:
   replicaCount: 1
   extraEnvVars:
     - name: KAFKA_CFG_LISTENERS
-      value: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      value: "CLIENT://0.0.0.0:9092,INTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093"
     - name: KAFKA_CFG_ADVERTISED_LISTENERS
-      value: "INTERNAL://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9094,EXTERNAL://localhost:9092,CONTROLLER://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9093"
+      value: "CLIENT://localhost:9092,INTERNAL://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9094,CONTROLLER://kafka-controller-0.kafka-controller-headless.roadride.svc.cluster.local:9093"
     - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-      value: "INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
+      value: "CLIENT:SASL_PLAINTEXT,INTERNAL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
     - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
       value: "INTERNAL"
     - name: KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL
@@ -38,10 +38,4 @@ zookeeper:
 kraft:
   enabled: true
 externalAccess:
-  enabled: true
-  controller:
-    service:
-      type: NodePort
-      nodePorts:
-        - 30092  # Custom NodePort for controller-0 (in 30000-32767 range)
-      domain: "localhost"  # Advertise localhost for port-forwarding
+  enabled: false  # Disable to avoid NodePort mismatch
