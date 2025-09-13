@@ -6,9 +6,9 @@ metadata:
 spec:
   containers:
   - name: kafka-client
-    image: bitnami/kafka:3.7
+    image: confluentinc/cp-kafka:7.3.0
     command: ["/bin/bash"]
-    args: ["-c", "sleep infinity"]
+    args: ["-c", "export PATH=$PATH:/usr/bin && sleep infinity"]
     volumeMounts:
     - name: client-config
       mountPath: /tmp/client.properties
