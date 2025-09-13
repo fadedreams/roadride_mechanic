@@ -23,13 +23,19 @@ func main() {
 	// Schema Registry client
 	client := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 
+	// Get CLIENT_PASSWORD from environment variable
+	clientPassword := os.Getenv("CLIENT_PASSWORD")
+	if clientPassword == "" {
+		panic("CLIENT_PASSWORD environment variable is not set")
+	}
+	fmt.Printf("Using client password from environment: %s\n", clientPassword[:3]+"...")
 	// Kafka consumer with SASL authentication
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
 		"bootstrap.servers":        "localhost:9092", // Minikube forwarded port
 		"security.protocol":        "SASL_PLAINTEXT",
 		"sasl.mechanism":          "PLAIN",
 		"sasl.username":           "user1",
-		"sasl.password":           "password1",
+		"sasl.password":           clientPassword,
 		"group.id":                "myGroup",
 		"auto.offset.reset":       "earliest",
 		"enable.auto.commit":      false,
