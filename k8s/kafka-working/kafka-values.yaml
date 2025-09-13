@@ -7,7 +7,7 @@ auth:
     jaas:
       users:
         - username: user1
-          password: password1
+          password: password1  # This is the base password; Helm generates the actual secret
         - username: admin
           password: adminpassword
 persistence:
@@ -19,8 +19,21 @@ resources:
 controller:
   replicaCount: 1
 broker:
-  replicaCount: 0
+  replicaCount: 0  # Single-node KRaft mode
 zookeeper:
   enabled: false
 kraft:
   enabled: true
+
+# External access configuration
+externalAccess:
+  enabled: true
+  service:
+    type: ClusterIP  # Use ClusterIP with port-forwarding; avoids LoadBalancer costs
+    port: 9092
+  hostPort:
+    enabled: true
+    ports:
+      - 9092  # Binds Kafka's external port to host's 9092
+  advertisedHostName: localhost  # Advertises localhost for external clients
+  advertisedHostNameType: hostname  # Use hostname (localhost) in advertised.listeners
