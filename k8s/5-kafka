@@ -18,3 +18,18 @@ curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
 
 # If still 50002, add a longer timeout hint in payload (SR ignores it, but retry with delay)
 saleep 10 && curl http://localhost:8081/subjects/repair.service+RepairEvent-value/versions/latest | jq .
+
+===
+# Port-forward Schema Registry for local testing (run in background)
+kubectl port-forward svc/schema-registry-svc 8081:8081 -n roadride &
+
+# Register the schema (replace with your avsc content)
+SCHEMA_JSON=$(cat repair_event.avsc | jq -c .)
+PAYLOAD=$(jq -n --arg schema "$SCHEMA_JSON" '{schema: $schema}')
+curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  --data "$PAYLOAD" \
+  http://localhost:8081/subjects/repair-events-value/versions
+
+# Verify registration
+curl http://localhost:8081/subjects/repair-events-value/versions/latest | jq .
+===

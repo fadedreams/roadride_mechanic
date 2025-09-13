@@ -1,0 +1,12 @@
+externalKafka:
+  brokers:
+    - SASL_PLAINTEXT://kafka.roadride.svc.cluster.local:9092  # Use full DNS; SASL_PLAINTEXT to match Kafka client listener
+auth:
+  enabled: true
+  sasl:
+    enabled: true
+    mechanism: SCRAM-SHA-256
+    client:
+      users:
+        - name: user1
+          password: ""  # This will be templated; we'll set it via --set
