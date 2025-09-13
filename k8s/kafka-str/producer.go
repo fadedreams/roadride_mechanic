@@ -15,7 +15,8 @@ import (
 
 func main() {
 	// Configuration for Kafka
-	bootstrapServers := "my-cluster-kafka-bootstrap:9092"
+	// bootstrapServers := "my-cluster-kafka-bootstrap:9092"
+	bootstrapServers := "localhost:9092"
 	topic := "my-topic"
 	consumerGroup := "my-consumer-group"
 
