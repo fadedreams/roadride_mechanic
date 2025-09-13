@@ -1,0 +1,38 @@
+clusterName: "elasticsearch"
+nodeGroup: "master"  # Single group for simplicity
+
+# Single node
+replicas: 1
+roles:
+  master: "true"
+  ingest: "true"
+  data: "true"
+  ml: "true"  # Optional, for machine learning
+
+# Disable security (dev only; not supported in 8.x but works)
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: false
+    cluster.initial_master_nodes: ["elasticsearch-master"]
+    discovery.type: single-node
+
+# Low resources for Minikube
+esJavaOpts: "-Xmx512m -Xms512m"
+resources:
+  requests:
+    cpu: "100m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1024Mi"
+
+# Small persistent volume
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ""  # Use Minikube's default
+
+# Allow co-location on single node
+antiAffinity: "soft"

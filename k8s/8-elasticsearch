@@ -1,0 +1,5 @@
+kubectl create namespace roadride
+kubectl config set-context --current --namespace=roadride
+
+helm repo add elastic https://helm.elastic.co
+helm repo update

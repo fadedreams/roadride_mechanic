@@ -1,0 +1,31 @@
+replicas: 1
+
+# Java heap for low resources
+logstashJavaOpts: "-Xmx512m -Xms512m"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "1024Mi"
+
+# Basic pipeline config (beats input -> ES output)
+logstashPipeline:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    filter {
+      # Add your filters here, e.g., grok for parsing
+    }
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch-master:9200"]
+        index => "logstash-%{+YYYY.MM.dd}"
+      }
+      stdout { codec => rubydebug }  # For debugging
+    }
