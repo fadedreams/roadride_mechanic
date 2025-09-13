@@ -6,9 +6,10 @@ metadata:
 spec:
   containers:
   - name: kafka-client
-    image: confluentinc/cp-kafka:7.3.0
-    command: ["/bin/bash"]
-    args: ["-c", "export PATH=$PATH:/usr/bin && sleep infinity"]
+    image: apache/kafka:latest
+    workingDir: /opt/kafka/bin  # Matches Apache image layout for easy tool access
+    command: ["/bin/sh"]
+    args: ["-c", "sleep infinity"]  # Keeps the pod running for interactive use
     volumeMounts:
     - name: client-config
       mountPath: /tmp/client.properties
