@@ -1,20 +1,23 @@
+# Single-node Elasticsearch config for Minikube (dev only)
 clusterName: "elasticsearch"
-nodeGroup: "master"  # Single group for simplicity
 
 # Single node
 replicas: 1
-roles:
-  master: "true"
-  ingest: "true"
-  data: "true"
-  ml: "true"  # Optional, for machine learning
 
-# Disable security (dev only; not supported in 8.x but works)
+# Roles as a LIST for single-node (all roles on one pod)
+roles:
+  - master
+  - data
+  - ingest
+  - ml  # Optional: machine learning
+
+# Disable security (dev only; not recommended for prod)
 esConfig:
   elasticsearch.yml: |
     xpack.security.enabled: false
-    cluster.initial_master_nodes: ["elasticsearch-master"]
     discovery.type: single-node
+
+# Note: For single-node, initial_master_nodes is auto-handled by the chart
 
 # Low resources for Minikube
 esJavaOpts: "-Xmx512m -Xms512m"
