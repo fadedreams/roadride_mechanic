@@ -1,4 +1,3 @@
-// export CLIENT_PASSWORD=$(kubectl get secret kafka-user-passwords --namespace roadride -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)
 package main
 
 import (
@@ -20,38 +19,33 @@ type User struct {
 
 func main() {
 	topic := "test-topic"
-
-	// Schema Registry client
 	client := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 
-	// Retrieve the client password from the Kubernetes secret
 	clientPassword := os.Getenv("CLIENT_PASSWORD")
 	if clientPassword == "" {
 		panic("CLIENT_PASSWORD environment variable not set")
 	}
 
-	// Kafka consumer with SASL_PLAINTEXT
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  "localhost:9092",
+		"bootstrap.servers":  "localhost:30092", // Updated to match EXTERNAL listener
 		"security.protocol":  "SASL_PLAINTEXT",
 		"sasl.mechanism":     "PLAIN",
 		"sasl.username":      "user1",
 		"sasl.password":      clientPassword,
 		"group.id":           "myGroup",
 		"auto.offset.reset":  "earliest",
+		"debug":              "all", // Keep debug logging
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create consumer: %v", err))
 	}
 	defer c.Close()
 
-	// Subscribe to topic
 	err = c.SubscribeTopics([]string{topic}, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to subscribe to topic: %v", err))
 	}
 
-	// Handle signals for graceful shutdown
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -65,18 +59,16 @@ func main() {
 		default:
 			msg, err := c.ReadMessage(-1)
 			if err == nil {
-				// Extract schema ID from payload (first 5 bytes: magic byte + 4-byte schema ID)
 				if len(msg.Value) < 5 {
 					fmt.Printf("Invalid message: too short\n")
 					continue
 				}
-				if msg.Value[0] != 0 { // Check magic byte
+				if msg.Value[0] != 0 {
 					fmt.Printf("Invalid message: incorrect magic byte\n")
 					continue
 				}
 				schemaID := binary.BigEndian.Uint32(msg.Value[1:5])
 
-				// Retrieve schema from Schema Registry
 				schemaObj, err := client.GetSchema(int(schemaID))
 				if err != nil {
 					fmt.Printf("Failed to retrieve schema with ID %d: %v\n", schemaID, err)
@@ -89,7 +81,6 @@ func main() {
 					continue
 				}
 
-				// Deserialize Avro payload
 				var user User
 				err = avro.Unmarshal(remoteSchema, msg.Value[5:], &user)
 				if err != nil {
@@ -99,7 +90,7 @@ func main() {
 				fmt.Printf("Received message - Name: %s, Age: %d\n", user.Name, user.Age)
 			} else {
 				if kafkaErr, ok := err.(kafka.Error); ok && kafkaErr.Code() == kafka.ErrTimedOut {
-					continue // Timeout, keep polling
+					continue
 				}
 				fmt.Printf("Consumer error: %v (%v)\n", err, msg)
 				return
@@ -107,4 +98,3 @@ func main() {
 		}
 	}
 }
-
