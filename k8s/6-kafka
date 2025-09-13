@@ -28,6 +28,17 @@ echo -e "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-256\nsasl.us
 kubectl cp client.properties kcat-client:/tmp/client.properties -n roadride
 rm client.properties
 
+kubectl exec -it kafka-0 -n roadride -- bash
+kafka-configs.sh --bootstrap-server kafka:9094 --alter --add-config 'SCRAM-SHA-256=[password=password1]' --entity-type users --entity-name user1
+kafka-configs.sh --bootstrap-server kafka:9094 --alter --add-config 'SCRAM-SHA-256=[password=adminpassword]' --entity-type users --entity-name admin
+exit
+
+kubectl exec -it kcat-client -n roadride -- bash
+echo -e "Hello, Kafka!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
+kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -C
+
+kubectl logs schema-registry-0 -n roadride
+============
 kubectl exec -it kcat-client -n roadride -- bash
 echo -e "Hello, Kafka\!\nSecond message" | kcat -b kafka.roadride.svc.cluster.local:9092 -F /tmp/client.properties -t test -P
 

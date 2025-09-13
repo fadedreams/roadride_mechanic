@@ -1,15 +1,9 @@
-# kafka-values.yaml
 auth:
   clientProtocol: sasl
   interBrokerProtocol: sasl
   sasl:
-    mechanism: PLAIN
-    jaas:
-      users:
-        - username: user1
-          password: password1
-        - username: admin
-          password: adminpassword
+    mechanism: SCRAM-SHA-256
+    # Remove jaas.users since SCRAM credentials are managed via kafka-configs.sh
 persistence:
   size: 8Gi
 resources:
@@ -24,7 +18,6 @@ zookeeper:
   enabled: false
 kraft:
   enabled: true
-# Explicitly configure listeners
 extraEnvVars:
   - name: KAFKA_CFG_LISTENERS
     value: "INTERNAL://0.0.0.0:9094,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
