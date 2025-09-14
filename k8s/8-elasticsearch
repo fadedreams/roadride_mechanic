@@ -7,6 +7,30 @@ kubectl config set-context --current --namespace=roadride
 
 helm repo add elastic https://helm.elastic.co
 helm repo update
+===
+mkdir -p certs
+chown 1000:1000 certs
+# Option 1: Change ownership to UID 1000 (elasticsearch user)
+sudo chown 1000:1000 certs
+
+# Option 2: Make the directory world-writable (less secure, use for testing only)
+chmod 777 certs
+===
+# Run a temporary Elasticsearch container to generate certs
+docker run -it --rm -v $(pwd)/certs:/certs docker.elastic.co/elasticsearch/elasticsearch:8.5.1 bash
+
+# Inside the container:
+bin/elasticsearch-certutil ca --out /certs/elastic-stack-ca.p12 --pass ''
+bin/elasticsearch-certutil cert --ca /certs/elastic-stack-ca.p12 --ca-pass '' --name localhost --dns localhost --out /certs/elastic-certificates.p12 --pass ''
+exit
+
+# Extract ca.crt for clients (on host)
+openssl pkcs12 -in certs/elastic-stack-ca.p12 -cacerts -nokeys -out certs/ca.crt -passin pass:
+
+# Create secrets in Kubernetes (after creating the cluster and namespace)
+kubectl create secret generic elastic-certificates --from-file=elastic-certificates.p12=certs/elastic-certificates.p12 -n roadride
+kubectl create secret generic elasticsearch-master-certs --from-file=ca.crt=certs/ca.crt -n roadride
+===
 
 helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
 helm install kibana elastic/kibana -f kibana-values.yaml -n roadride

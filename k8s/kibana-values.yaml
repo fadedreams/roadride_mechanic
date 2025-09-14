@@ -1,31 +1,12 @@
-elasticsearchHosts: "https://elasticsearch-master:9200"
-kibanaConfig:
-  kibana.yml: |
-    elasticsearch.ssl.certificateAuthorities: ["/usr/share/kibana/config/elasticsearch-certs/ca.crt"]
-    elasticsearch.ssl.verificationMode: certificate
-extraEnvs:
-  - name: "ELASTICSEARCH_USERNAME"
-    valueFrom:
-      secretKeyRef:
-        name: elasticsearch-master-credentials
-        key: username
-  - name: "ELASTICSEARCH_PASSWORD"
-    valueFrom:
-      secretKeyRef:
-        name: elasticsearch-master-credentials
-        key: password
-secretMounts:
-  - name: "elasticsearch-master-certs"
-    secretName: "elasticsearch-master-certs"
-    path: "/usr/share/kibana/config/elasticsearch-certs"
 service:
   type: NodePort
   port: 5601
-  nodePort: 30000  # Fixed for Kind port mapping
-# resources:
-#   requests:
-#     cpu: "200m"
-#     memory: "200Mi"
-  # limits:
-  #   cpu: "500m"
-  #   memory: "1Gi"
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "200Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+

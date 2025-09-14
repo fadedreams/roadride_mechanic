@@ -1,0 +1,14 @@
+
+kind delete cluster --name my-cluster
+sudo usermod -aG docker $USER && newgrp docker
+kind create cluster --name my-cluster --config kind-config.yaml
+
+kubectl create namespace roadride
+kubectl config set-context --current --namespace=roadride
+
+helm repo add elastic https://helm.elastic.co
+helm repo update
+curl -O https://raw.githubusercontent.com/elastic/Helm-charts/master/elasticsearch/examples/minikube/values.yaml
+helm install elasticsearch elastic/elasticsearch -f ./values.yaml
+kubectl port-forward svc/elasticsearch-master 9200 &
+helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
