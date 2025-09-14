@@ -40,3 +40,14 @@ helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
   $ kubectl get secrets --namespace=roadride elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
 3. Retrieve the kibana service account token.
   $ kubectl get secrets --namespace=roadride kibana-kibana-es-token -ojsonpath='{.data.token}' | base64 -d
+
+
+kubectl apply -f kibana-ingress.yaml
+ingress-nginx   service/ingress-nginx-controller             NodePort    10.111.135.44   <none>        80:31209/TCP,443:30596/TCP   30m
+sudo socat -d -d TCP-LISTEN:80,bind=45.38.42.165,fork TCP:192.168.49.2:31209
+lynx http://kibana.45.38.42.165.nip.io
+#https
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml
+kubectl apply -f cluster-issuer.yaml
+kubectl apply -f kibana-ingress-https.yaml
+sudo socat -d -d TCP-LISTEN:443,bind=45.38.42.165,fork TCP:192.168.49.2:30596
