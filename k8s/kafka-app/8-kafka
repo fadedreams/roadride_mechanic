@@ -26,9 +26,7 @@ bootstrapServers := "localhost:9094"  // Match your forward port
 go run producer.go
 
 
-kuhttps://strimzi.io/quickstarts/bectl apply -f schema-registry.yaml -n kafka
-kubectl port-forward svc/schema-registry 8081:8081 -n kafka &
-
+kubectl apply -f schema-registry.yaml -n kafka
 kubectl port-forward svc/schema-registry 8081:8081 -n kafka &
 
 kubectl apply -f kafka-ui.yaml -n kafka
