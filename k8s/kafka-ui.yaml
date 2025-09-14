@@ -27,6 +27,10 @@ spec:
           value: "http://schema-registry:8081"
         - name: AUTH_TYPE
           value: "DISABLED"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: SERVER_HOST
+          value: "0.0.0.0" # Ensure Kafka UI binds to all interfaces
 ---
 apiVersion: v1
 kind: Service
@@ -41,4 +45,4 @@ spec:
   - protocol: TCP
     port: 8080
     targetPort: 8080
-    nodePort: 30080 # Specify a port in the NodePort range (30000-32767)
+    nodePort: 30080
