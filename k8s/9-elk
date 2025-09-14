@@ -51,3 +51,4 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 kubectl apply -f cluster-issuer.yaml
 kubectl apply -f kibana-ingress-https.yaml
 sudo socat -d -d TCP-LISTEN:443,bind=45.38.42.165,fork TCP:192.168.49.2:30596
+sudo socat -d -d TCP-LISTEN:443,bind=45.38.42.165,fork TCP:192.168.49.2:31209
