@@ -1,3 +1,4 @@
+kubectl get all --all-namespaces
 kubectl get all -n roadride
 kubectl get deployments -n roadride
 kubectl get svc -n roadride

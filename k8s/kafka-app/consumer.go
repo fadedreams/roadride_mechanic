@@ -1,3 +1,4 @@
+// consumer.go
 package main
 
 import (
@@ -14,31 +15,20 @@ import (
 
 type User struct {
 	Name string `avro:"name"`
-	Age  int    `avro:"age"`
+	Age  int64  `avro:"age"` // Updated to int64 to match Avro 'long'
 }
 
 func main() {
-	topic := "test-topic"
+	topic := "my-topic" // Updated for consistency with original producer
 
 	// Schema Registry client
 	client := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 
-	// Get CLIENT_PASSWORD from environment variable
-	clientPassword := os.Getenv("CLIENT_PASSWORD")
-	if clientPassword == "" {
-		panic("CLIENT_PASSWORD environment variable is not set")
-	}
-	fmt.Printf("Using client password from environment: %s\n", clientPassword[:3]+"...")
-	// Kafka consumer with SASL authentication
+	// Kafka consumer
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":        "localhost:9092", // Minikube forwarded port
-		"security.protocol":        "SASL_PLAINTEXT",
-		"sasl.mechanism":          "PLAIN",
-		"sasl.username":           "user1",
-		"sasl.password":           clientPassword,
-		"group.id":                "myGroup",
-		"auto.offset.reset":       "earliest",
-		"enable.auto.commit":      false,
+		"bootstrap.servers": "localhost:9094",
+		"group.id":          "myGroup",
+		"auto.offset.reset": "earliest",
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create consumer: %v", err))
@@ -65,7 +55,7 @@ func main() {
 		default:
 			msg, err := c.ReadMessage(-1)
 			if err == nil {
-				// Extract schema ID from payload
+				// Extract schema ID from payload (first 5 bytes: magic byte + 4-byte schema ID)
 				if len(msg.Value) < 5 {
 					fmt.Printf("Invalid message: too short\n")
 					continue
@@ -97,14 +87,11 @@ func main() {
 					continue
 				}
 				fmt.Printf("Received message - Name: %s, Age: %d\n", user.Name, user.Age)
-				
-				// Manually commit offset
-				c.CommitMessage(msg)
 			} else {
 				if kafkaErr, ok := err.(kafka.Error); ok && kafkaErr.Code() == kafka.ErrTimedOut {
 					continue // Timeout, keep polling
 				}
-				fmt.Printf("Consumer error: %v\n", err)
+				fmt.Printf("Consumer error: %v (%v)\n", err, msg)
 				return
 			}
 		}
