@@ -1,4 +1,4 @@
-replextraEnvs:
+extraEnvs:
   - name: "ELASTICSEARCH_USERNAME"
     valueFrom:
       secretKeyRef:
@@ -9,12 +9,10 @@ replextraEnvs:
       secretKeyRef:
         name: elasticsearch-master-credentials
         key: password
-
 logstashConfig:
   logstash.yml: |
     http.host: 0.0.0.0
     xpack.monitoring.enabled: false
-
 logstashPipeline:
   logstash.conf: |
     input {
@@ -22,7 +20,6 @@ logstashPipeline:
         port => 5044
       }
     }
-
     output {
       elasticsearch {
         hosts => ["https://elasticsearch-master:9200"]
@@ -31,12 +28,10 @@ logstashPipeline:
         password => '${ELASTICSEARCH_PASSWORD}'
       }
     }
-
 secretMounts:
   - name: "elasticsearch-master-certs"
     secretName: "elasticsearch-master-certs"
     path: "/usr/share/logstash/config/elasticsearch-master-certs"
-
 service:
   type: ClusterIP
   ports:
@@ -48,11 +43,10 @@ service:
       port: 8080
       protocol: TCP
       targetPort: 8080
-
-resources:
-  requests:
-    cpu: "200m"
-    memory: "200Mi"
-  limits:
-    cpu: "500m"
-    memory: "1536Mi" 
+# resources:
+#   requests:
+#     cpu: "200m"
+#     memory: "200Mi"
+#   limits:
+#     cpu: "500m"
+#     memory: "1536Mi"

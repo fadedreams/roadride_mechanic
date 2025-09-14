@@ -10,6 +10,5 @@ filebeatConfig:
               matchers:
                 - logs_path:
                     logs_path: "/var/log/containers/"
-
     output.logstash:
       hosts: ["logstash-logstash:5044"]
