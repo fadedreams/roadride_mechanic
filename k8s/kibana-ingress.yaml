@@ -3,7 +3,10 @@ kind: Ingress
 metadata:
   name: kibana-ingress
   namespace: roadride
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
+  ingressClassName: nginx
   rules:
   - host: kibana.45.38.42.165.nip.io
     http:
