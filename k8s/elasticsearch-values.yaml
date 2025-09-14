@@ -9,15 +9,11 @@ esConfig:
     xpack.security.http.ssl.enabled: true
     xpack.security.http.ssl.truststore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
     xpack.security.http.ssl.keystore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
-secretMounts:
-  - name: elastic-certificates
-    secretName: elastic-certificates
-    path: /usr/share/elasticsearch/config/certs
 # resources:
 #   requests:
 #     cpu: "200m"
 #     memory: "200Mi"
-  # limits:
-  #   cpu: "100m"
-  #   memory: "1Gi"
+#   limits:
+#     cpu: "500m"
+#     memory: "1Gi"
 antiAffinity: "soft"

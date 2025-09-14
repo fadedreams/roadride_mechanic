@@ -1,6 +1,6 @@
 kind delete cluster --name my-cluster
-kind create cluster --name my-cluster --config kind-config.yaml
 sudo usermod -aG docker $USER && newgrp docker
+kind create cluster --name my-cluster --config kind-config.yaml
 
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride

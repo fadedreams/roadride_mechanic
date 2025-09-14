@@ -5,13 +5,14 @@ nodes:
   extraPortMappings:
   - containerPort: 30080
     hostPort: 30080
-    listenAddress: "0.0.0.0"
-  - containerPort: 32003
+    listenAddress: "0.0.0.0" # Bind to all interfaces
+  - containerPort: 32003 # For Kafka external bootstrap
     hostPort: 32003
     listenAddress: "0.0.0.0"
-  - containerPort: 30226
+  - containerPort: 30226 # For my-cluster-dual-role-0 (if needed)
     hostPort: 30226
     listenAddress: "0.0.0.0"
-  - containerPort: 30000
+  - containerPort: 30000 # For Kibana
     hostPort: 5601
+    listenAddress: "0.0.0.0"
     protocol: TCP
