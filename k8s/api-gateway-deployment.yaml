@@ -27,7 +27,7 @@ spec:
         - envFrom:
             - configMapRef:
                 name: app-config
-          image: api-gateway
+          image: fadedreams7/api-gateway
           name: api-gateway
           ports:
             - containerPort: 8085
