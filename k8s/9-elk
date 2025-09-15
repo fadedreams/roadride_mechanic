@@ -63,3 +63,5 @@ helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
 1. Watch all cluster members come up.
   $ kubectl get pods --namespace=roadride -l app=logstash-logstash -w
 helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
+
+docker buildx build --load -t fadedreams7/api-gateway:latest ./elk-app
