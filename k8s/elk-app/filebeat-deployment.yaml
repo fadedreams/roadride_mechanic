@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: roadride
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                io.kompose.service: api-gateway
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:8.10.2
+        args: ["-c", "/etc/filebeat.yml", "-e"]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/filebeat.yml
+          subPath: filebeat.yml
+        - name: log-volume
+          mountPath: /var/log/api-gateway
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "100Mi"
+          limits:
+            cpu: "200m"
+            memory: "200Mi"
+      volumes:
+      - name: config
+        configMap:
+          name: filebeat-config
+      - name: log-volume
+        persistentVolumeClaim:
+          claimName: api-gateway-logs

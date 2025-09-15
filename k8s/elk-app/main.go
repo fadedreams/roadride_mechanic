@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -78,7 +79,20 @@ func main() {
 		fmt.Fprintf(w, "Log written and indexed in Elasticsearch")
 	})
 
-	// Start HTTP server
-	logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Starting server on :8080","level":"INFO"}`, time.Now().Format(time.RFC3339))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// HTTP handler for /health endpoint
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		logEntry := LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			App:       "api-gateway",
+			Message:   "Health check OK",
+			Level:     "INFO",
+		}
+		logJSON, _ := json.Marshal(logEntry)
+		logger.Println(string(logJSON))
+		fmt.Fprintf(w, "OK")
+	})
+
+	// Start HTTP server on port 8085
+	logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Starting server on :8085","level":"INFO"}`, time.Now().Format(time.RFC3339))
+	log.Fatal(http.ListenAndServe(":8085", nil))
 }
