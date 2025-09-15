@@ -20,6 +20,7 @@ kubectl port-forward svc/elasticsearch-master 9200 &
 helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
 
 
+kubectl get all --all-namespaces
 helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
 helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
 helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
@@ -41,6 +42,10 @@ helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
 3. Retrieve the kibana service account token.
   $ kubectl get secrets --namespace=roadride kibana-kibana-es-token -ojsonpath='{.data.token}' | base64 -d
 
+#port-forward
+kubectl port-forward svc/kibana-kibana -n roadride 5601:5601 --address 0.0.0.0 &
+## on other machine
+lynx http://31.57.118.116:5601
 
 kubectl apply -f kibana-ingress.yaml
 ingress-nginx   service/ingress-nginx-controller             NodePort    10.111.135.44   <none>        80:31209/TCP,443:30596/TCP   30m
@@ -52,3 +57,8 @@ kubectl apply -f cluster-issuer.yaml
 kubectl apply -f kibana-ingress-https.yaml
 sudo socat -d -d TCP-LISTEN:443,bind=45.38.42.165,fork TCP:192.168.49.2:30596
 sudo socat -d -d TCP-LISTEN:443,bind=45.38.42.165,fork TCP:192.168.49.2:31209
+
+helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
+1. Watch all cluster members come up.
+  $ kubectl get pods --namespace=roadride -l app=logstash-logstash -w
+helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride

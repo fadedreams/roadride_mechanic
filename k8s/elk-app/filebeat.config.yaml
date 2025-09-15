@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: roadride
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: log
+      enabled: true
+      paths:
+        - /var/log/api-gateway/api-gateway.log
+      fields:
+        app: api-gateway
+      fields_under_root: true
+    output.logstash:
+      hosts: ["logstash-logstash:5044"]

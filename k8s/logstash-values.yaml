@@ -1,3 +1,27 @@
+logstashConfig:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    http.port: 9600
+logstashPipeline:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    filter {
+      json {
+        source => "message"
+      }
+    }
+    output {
+      if [app] == "api-gateway" {
+        elasticsearch {
+          hosts => ["http://elasticsearch-master:9200"]
+          index => "apigateway-logs-%{+YYYY.MM.dd}"
+        }
+      }
+    }
 service:
   type: NodePort
   ports:
@@ -5,16 +29,16 @@ service:
       port: 5044
       protocol: TCP
       targetPort: 5044
-      nodePort: 30044  # Optional: Specify a port (30000-32767 range); Kubernetes assigns one if omitted
+      nodePort: 30044
     - name: http
       port: 8080
       protocol: TCP
       targetPort: 8080
-      nodePort: 30080  # Optional: Specify a port
+      nodePort: 30080
 resources:
   requests:
     cpu: "100m"
     memory: "200Mi"
   limits:
-    cpu: "100m"
-    memory: "200Mi"
+    cpu: "500m"
+    memory: "1Gi"
