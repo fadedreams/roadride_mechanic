@@ -2,9 +2,8 @@ FROM golang:1.25.1
 
 WORKDIR /app
 
-COPY go.mod ./
-RUN go mod init api-gateway
-RUN go get github.com/elastic/go-elasticsearch/v8
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY main.go .
 RUN go build -o api-gateway .

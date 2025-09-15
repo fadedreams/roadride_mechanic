@@ -29,9 +29,15 @@ func main() {
 	defer logFile.Close()
 	logger := log.New(logFile, "", 0)
 
+	// Get Elasticsearch host from environment variable or default
+	esHost := os.Getenv("ELASTICSEARCH_HOST")
+	if esHost == "" {
+		esHost = "http://elasticsearch-master:9200"
+	}
+
 	// Initialize Elasticsearch client
 	cfg := elasticsearch.Config{
-		Addresses: []string{"http://elasticsearch-master:9200"},
+		Addresses: []string{esHost},
 	}
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {
