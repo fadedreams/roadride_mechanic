@@ -1,16 +1,15 @@
-# Stage 1: Build
-FROM golang:1.22 AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
 ENV GOPROXY=https://proxy.golang.org,direct
+RUN apk add --no-cache git
 RUN go mod download
 
 COPY main.go .
-RUN go build -v -o api-gateway .
+RUN CGO_ENABLED=0 go build -v -mod=readonly -o api-gateway .
 
-# Stage 2: Runtime
-FROM golang:1.22
+FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/api-gateway .
 RUN mkdir -p /var/log/api-gateway
