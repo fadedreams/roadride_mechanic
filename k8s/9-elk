@@ -15,14 +15,15 @@ kubectl config set-context --current --namespace=roadride
 
 helm repo add elastic https://helm.elastic.co
 helm repo update
-helm install elasticsearch elastic/elasticsearch -f ./values.yaml
-kubectl port-forward svc/elasticsearch-master 9200 &
-helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
 
+helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
+kubectl port-forward svc/elasticsearch-master 9200 &
+
+helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
 
 kubectl get all --all-namespaces
 helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
-helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
+
 helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
 helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
 
