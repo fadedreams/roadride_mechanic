@@ -2,6 +2,9 @@ kind delete cluster --name my-cluster
 sudo usermod -aG docker $USER && newgrp docker
 kind create cluster --name my-cluster --config kind-config.yaml
 
+eval $(minikube docker-env)
+minikube start --memory=7500
+
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride
 
@@ -33,6 +36,20 @@ kubectl create secret generic elasticsearch-master-certs --from-file=ca.crt=cert
 ===
 
 helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
+1. Watch all cluster members come up.
+  $ kubectl get pods --namespace=roadride -l app=elasticsearch-master -w
+2. Retrieve elastic user's password.
+  $ kubectl get secrets --namespace=roadride elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
+3. Test cluster health using Helm test.
+  $ helm --namespace=roadride test elasticsearch
+
 helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
+1. Watch all containers come up.
+  $ kubectl get pods --namespace=roadride -l release=kibana -w
+2. Retrieve the elastic user's password.
+  $ kubectl get secrets --namespace=roadride elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
+3. Retrieve the kibana service account token.
+  $ kubectl get secrets --namespace=roadride kibana-kibana-es-token -ojsonpath='{.data.token}' | base64 -d
+
 helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
 helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
