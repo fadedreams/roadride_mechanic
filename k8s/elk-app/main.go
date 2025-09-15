@@ -35,13 +35,21 @@ func main() {
 		esHost = "http://elasticsearch-master:9200"
 	}
 
-	// Initialize Elasticsearch client
+	// Initialize Elasticsearch client with retry logic
+	var es *elasticsearch.Client
 	cfg := elasticsearch.Config{
 		Addresses: []string{esHost},
 	}
-	es, err := elasticsearch.NewClient(cfg)
+	for retries := 5; retries > 0; retries-- {
+		es, err = elasticsearch.NewClient(cfg)
+		if err == nil {
+			break
+		}
+		logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Failed to create Elasticsearch client: %v, retrying...","level":"ERROR"}`, time.Now().Format(time.RFC3339), err)
+		time.Sleep(5 * time.Second)
+	}
 	if err != nil {
-		logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Failed to create Elasticsearch client: %v","level":"ERROR"}`, time.Now().Format(time.RFC3339), err)
+		logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Failed to create Elasticsearch client after retries: %v","level":"ERROR"}`, time.Now().Format(time.RFC3339), err)
 		log.Fatalf("Failed to create Elasticsearch client: %v", err)
 	}
 
