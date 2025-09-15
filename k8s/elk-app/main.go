@@ -54,6 +54,25 @@ func main() {
 	defer res.Body.Close()
 	logger.Printf(`{"@timestamp":"%s","app":"api-gateway","message":"Connected to Elasticsearch: %s","level":"INFO"}`, time.Now().Format(time.RFC3339), res.String())
 
+	// Start a goroutine to log a sample message every 10 seconds
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				logEntry := LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					App:       "api-gateway",
+					Message:   "Periodic sample log",
+					Level:     "INFO",
+				}
+				logJSON, _ := json.Marshal(logEntry)
+				logger.Println(string(logJSON))
+			}
+		}
+	}()
+
 	// HTTP handler for /log endpoint
 	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
 		// Log request
