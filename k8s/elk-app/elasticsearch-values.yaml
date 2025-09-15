@@ -1,3 +1,12 @@
+protocol: http  # Use HTTP instead of HTTPS
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: true  # Keep security for auth
+    xpack.security.http.ssl.enabled: false  # Disable TLS for HTTP API
+http:
+  tls:
+    selfSignedCertificate:
+      disabled: true  # Disable self-signed certs
 resources:
   requests:
     cpu: "100m"

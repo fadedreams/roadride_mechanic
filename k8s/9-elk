@@ -18,11 +18,11 @@ helm repo update
 
 helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
 kubectl port-forward svc/elasticsearch-master 9200 &
+kubectl port-forward svc/elasticsearch-master -n roadride 9200:9200 --address 0.0.0.0 &
 
 helm install kibana elastic/kibana -f kibana-values.yaml -n roadride
 
 kubectl get all --all-namespaces
-helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n roadride
 
 helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
 helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
@@ -65,3 +65,11 @@ helm install logstash elastic/logstash -f logstash-values.yaml -n roadride
 helm install filebeat elastic/filebeat -f filebeat-values.yaml -n roadride
 
 docker buildx build --load -t fadedreams7/api-gateway:latest ./elk-app
+docker push fadedreams7/api-gateway:latest
+
+kubectl apply -f api-gateway-logs-pvc.yaml
+kubectl apply -f app-config.yaml
+kubectl apply -f filebeat-config.yaml
+kubectl apply -f filebeat-deployment.yaml
+kubectl apply -f api-gateway-deployment.yaml
+kubectl apply -f api-gateway-service.yaml
