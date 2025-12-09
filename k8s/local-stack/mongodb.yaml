@@ -35,17 +35,21 @@ spec:
             command:
             - /bin/sh
             - -c
-            - mongosh --host localhost -u root -p root --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
+            - >-
+              mongosh --host localhost --username root --password root
+              --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
-          failureThreshold: 60  # ~10 minutes grace for first startup
+          failureThreshold: 60  # Generous for first startup (root user creation)
         livenessProbe:
           exec:
             command:
             - /bin/sh
             - -c
-            - mongosh --host localhost -u root -p root --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
+            - >-
+              mongosh --host localhost --username root --password root
+              --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
           initialDelaySeconds: 30
           periodSeconds: 20
           timeoutSeconds: 5
