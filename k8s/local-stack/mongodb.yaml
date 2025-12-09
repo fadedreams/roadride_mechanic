@@ -33,37 +33,35 @@ spec:
         readinessProbe:
           exec:
             command:
-            - /bin/sh
-            - -c
-            - mongosh --quiet -u root -p root --authenticationDatabase admin --eval "db.adminCommand('ping')" || exit 1
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+            - -u
+            - root
+            - -p
+            - root
+            - --authenticationDatabase
+            - admin
+            - --quiet
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
         livenessProbe:
           exec:
             command:
-            - /bin/sh
-            - -c
-            - mongosh --quiet -u root -p root --authenticationDatabase admin --eval "db.adminCommand('ping')" || exit 1
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+            - -u
+            - root
+            - -p
+            - root
+            - --authenticationDatabase
+            - admin
+            - --quiet
           initialDelaySeconds: 30
           periodSeconds: 20
-        # This is the magic: auto-initiate if not done
-        healthcheck:
-          test:
-            - CMD-SHELL
-            - >
-              mongosh --quiet -u root -p root --authenticationDatabase admin <<EOF
-              try {
-                if (rs.status().ok === 1) { quit(0); }
-              } catch (e) {}
-              rs.initiate({
-                _id: "rs0",
-                members: [{ _id: 0, host: "mongodb:27017" }]
-              });
-              EOF
-          interval: 10s
-          timeout: 10s
-          start_period: 20s
-          retries: 30
+          timeoutSeconds: 5
       volumes:
       - name: data
         emptyDir: {}
