@@ -80,28 +80,26 @@ func main() {
 }
 
 func initMongoDB() error {
-    // Step 1: Connect WITHOUT replicaSet param but WITH auth + directConnection
-    // This works even before rs.initiate when auth is enabled
-    initialURI := "mongodb://root:root@mongodb:27017/?directConnection=true&authSource=admin"
+    // Step 1: Unauthenticated connection to initiate replica set (required in this Docker setup)
+    initialURI := "mongodb://mongodb:27017/?directConnection=true"
     clientOptions := options.Client().ApplyURI(initialURI).SetConnectTimeout(10 * time.Second)
-
     client, err := mongo.Connect(context.Background(), clientOptions)
     if err != nil {
-        slog.Error("failed to connect to MongoDB (initial)", slog.String("error", err.Error()))
-        return fmt.Errorf("failed to connect to MongoDB: %v", err)
+        slog.Error("failed to connect (initial unauth)", slog.String("error", err.Error()))
+        return fmt.Errorf("failed to connect: %v", err)
     }
     defer client.Disconnect(context.Background())
 
-    // Ping to verify
-    ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+    ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
     defer cancel()
-    if err := client.Ping(ctx, nil); err != nil {
-        slog.Error("failed to ping MongoDB (initial)", slog.String("error", err.Error()))
-        return fmt.Errorf("failed to ping MongoDB: %v", err)
-    }
-    slog.Info("Connected to MongoDB (pre-initiate)")
 
-    // Initialize replica set (idempotent)
+    if err := client.Ping(ctx, nil); err != nil {
+        slog.Error("failed to ping (initial unauth)", slog.String("error", err.Error()))
+        return fmt.Errorf("failed to ping: %v", err)
+    }
+    slog.Info("Connected unauth for initiation")
+
+    // Initiate (idempotent)
     adminDB := client.Database("admin")
     replSetConfig := bson.D{
         {Key: "replSetInitiate", Value: bson.D{
@@ -111,75 +109,68 @@ func initMongoDB() error {
             }},
         }},
     }
-
     _, err = adminDB.RunCommand(ctx, replSetConfig).DecodeBytes()
     if err != nil {
         if strings.Contains(err.Error(), "already initialized") {
             slog.Info("Replica set already initialized")
         } else {
-            slog.Error("failed to initialize replica set", slog.String("error", err.Error()))
-            return fmt.Errorf("failed to initialize replica set: %v", err)
+            return fmt.Errorf("replSetInitiate failed: %v", err)
         }
     } else {
-        slog.Info("Replica set initialized successfully")
+        slog.Info("Replica set initiated")
     }
 
-    // Wait for PRIMARY state
-    for i := 0; i < 15; i++ {
-        var statusDoc bson.M
-        err := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc)
-        if err == nil {
-            if state, ok := statusDoc["myState"].(int32); ok && state == 1 {
-                slog.Info("MongoDB is now PRIMARY")
+    // Wait for PRIMARY
+    for i := 0; i < 20; i++ {
+        var status bson.M
+        if err := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&status); err == nil {
+            if state, _ := status["myState"].(int32); state == 1 {
+                slog.Info("MongoDB is PRIMARY")
                 break
             }
         }
-        if i == 14 {
-            return fmt.Errorf("timed out waiting for PRIMARY state")
+        if i == 19 {
+            return fmt.Errorf("timeout waiting for PRIMARY")
         }
         time.Sleep(2 * time.Second)
     }
 
-    // Step 2: Reconnect with proper replica set URI + auth
+    // Step 2: Reconnect WITH auth for seeding
     finalURI := "mongodb://root:root@mongodb:27017/repairdb?replicaSet=rs0&authSource=admin"
     clientOptions = options.Client().ApplyURI(finalURI).SetConnectTimeout(10 * time.Second)
     client, err = mongo.Connect(context.Background(), clientOptions)
     if err != nil {
-        return fmt.Errorf("failed to reconnect with replica set: %v", err)
+        return fmt.Errorf("failed to reconnect with auth: %v", err)
     }
     defer client.Disconnect(context.Background())
 
     if err := client.Ping(ctx, nil); err != nil {
-        return fmt.Errorf("failed to ping after reconnect: %v", err)
+        return fmt.Errorf("ping failed after auth reconnect: %v", err)
     }
-    slog.Info("Reconnected to MongoDB with replica set")
+    slog.Info("Reconnected with auth and replica set")
 
-    // Seed mechanics data
+    // Now seed mechanics + index (same as before)
     mechanicsColl := client.Database("repairdb").Collection("mechanics")
     mechanics := []interface{}{
         bson.M{"_id": "mechanic1", "name": "Berlin Auto Repair", "location": bson.M{"longitude": 13.388860, "latitude": 52.517037}},
         bson.M{"_id": "mechanic2", "name": "City Garage", "location": bson.M{"longitude": 13.397634, "latitude": 52.529407}},
         bson.M{"_id": "mechanic3", "name": "Fast Fix Mechanics", "location": bson.M{"longitude": 13.428555, "latitude": 52.523219}},
     }
-
-    if _, err := mechanicsColl.DeleteMany(ctx, bson.M{}); err != nil {
-        slog.Warn("Failed to clear mechanics", "error", err)
-    }
+    mechanicsColl.DeleteMany(ctx, bson.M{}) // clear
     if _, err := mechanicsColl.InsertMany(ctx, mechanics); err != nil {
-        return fmt.Errorf("failed to insert mechanics: %v", err)
+        return fmt.Errorf("insert mechanics failed: %v", err)
     }
-    slog.Info("Seeded mechanics data")
+    slog.Info("Seeded mechanics")
 
-    // Create outbox index
     outboxColl := client.Database("repairdb").Collection("mechanic_outbox")
-    indexModel := mongo.IndexModel{
-        Keys:    bson.D{{"kafka_topic", 1}, {"kafka_partition", 1}, {"kafka_offset", 1}},
+    index := mongo.IndexModel{
+        Keys: bson.D{{"kafka_topic", 1}, {"kafka_partition", 1}, {"kafka_offset", 1}},
         Options: options.Index().SetUnique(true),
     }
-    if _, err := outboxColl.Indexes().CreateOne(ctx, indexModel); err != nil {
-        slog.Warn("Index may already exist", "error", err)
+    if _, err := outboxColl.Indexes().CreateOne(ctx, index); err != nil {
+        slog.Warn("Index create failed (maybe exists)", "error", err)
     } else {
-        slog.Info("Created unique index on mechanic_outbox")
+        slog.Info("Created outbox index")
     }
 
     return nil
