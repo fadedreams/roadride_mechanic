@@ -11,15 +11,21 @@ ping -c 1 jaeger.local.dev
 
 minikube start
 eval $(minikube docker-env)
+docker build -t api-gateway:latest ./api-gateway
+kubectl logs -f deployment/api-gateway
+
+
 kubectl apply -f k8s/local-stack/mongodb.yaml
-kubectl apply -f mongo-test.yaml
+kubectl apply -f k8s/local-stack/mongo-init-job.yaml   # <-- run this once
+kubectl apply -f k8s/local-stack/mongo-test.yaml
 kubectl logs job/mongo-test
 
 docker build -t api-gateway:latest ./api-gateway
+kubectl rollout restart deployment api-gateway
+kubectl logs -f deployment/api-gateway
 
 kubectl apply -f k8s/local-stack/consul.yaml
 kubectl apply -f k8s/local-stack/jaeger.yaml
-kubectl apply -f k8s/local-stack/mongodb.yaml
 
 # Wait until they’re healthy
 kubectl wait --for=condition=ready pod -l app=consul --timeout=120s
