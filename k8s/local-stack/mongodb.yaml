@@ -33,35 +33,21 @@ spec:
         readinessProbe:
           exec:
             command:
-            - mongosh
-            - --eval
-            - "db.adminCommand('ping')"
-            - -u
-            - root
-            - -p
-            - root
-            - --authenticationDatabase
-            - admin
-            - --quiet
-          initialDelaySeconds: 5
+            - /bin/sh
+            - -c
+            - mongosh --host localhost --username root --password root --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
+          initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
+          failureThreshold: 30  # allows up to ~5 minutes for first startup
         livenessProbe:
           exec:
             command:
-            - mongosh
-            - --eval
-            - "db.adminCommand('ping')"
-            - -u
-            - root
-            - -p
-            - root
-            - --authenticationDatabase
-            - admin
-            - --quiet
+            - /bin/sh
+            - -c
+            - mongosh --host localhost --username root --password root --authenticationDatabase admin --quiet --eval "db.runCommand({ping: 1})"
           initialDelaySeconds: 30
           periodSeconds: 20
-          timeoutSeconds: 5
       volumes:
       - name: data
         emptyDir: {}
