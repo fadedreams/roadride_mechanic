@@ -1,10 +1,11 @@
 minikube delete --all
 minikube delete --profile=minikube
 
-eval $(minikube docker-env)
-minikube start --memory=7500
+minikube start --memory=6000
 minikube start
 minikube status
+
+eval $(minikube docker-env)
 
 kubectl create namespace roadride
 kubectl config set-context --current --namespace=roadride

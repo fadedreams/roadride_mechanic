@@ -9,7 +9,7 @@ replica:
     enabled: false  # Disable arbiter (unneeded for 1-member; avoids resources warning)
 persistence:
   enabled: true
-  size: 2Gi
+  size: 1Gi
   storageClass: standard
 resources:
   requests:
