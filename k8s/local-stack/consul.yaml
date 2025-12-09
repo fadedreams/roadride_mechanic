@@ -1,0 +1,59 @@
+# k8s/local-stack/consul.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8500
+    name: http
+  - port: 8600
+    name: dns-udp
+    protocol: UDP
+  selector:
+    app: consul
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consul
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consul
+  template:
+    metadata:
+      labels:
+        app: consul
+    spec:
+      containers:
+      - name: consul
+        image: docker.io/hashicorp/consul:1.19
+        args:
+        - "agent"
+        - "-server"
+        - "-bootstrap-expect=1"
+        - "-ui"
+        - "-client=0.0.0.0"
+        - "-log-level=INFO"
+        - "-data-dir=/consul/data"
+        ports:
+        - containerPort: 8500
+        - containerPort: 8600
+          protocol: UDP
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: data
+          mountPath: /consul/data
+      volumes:
+      - name: data
+        emptyDir:
+          sizeLimit: 200Mi
