@@ -79,179 +79,25 @@ func main() {
 }
 
 func initMongoDB() error {
-	// Set up MongoDB client options with directConnection=true for uninitialized replica set
-	clientOptions := options.Client().
-		ApplyURI("mongodb://root:root@mongodb:27017/?directConnection=true&authSource=admin").
-		SetConnectTimeout(10 * time.Second)
+    clientOptions := options.Client().
+        ApplyURI("mongodb://root:root@mongodb:27017/repairdb?replicaSet=rs0&authSource=admin").
+        SetConnectTimeout(10 * time.Second)
 
-	// Connect to MongoDB
-	client, err := mongo.Connect(context.Background(), clientOptions)
-	if err != nil {
-		slog.Error("failed to connect to MongoDB", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to connect to MongoDB: %v", err)
-	}
-	defer client.Disconnect(context.Background())
+    client, err := mongo.Connect(context.Background(), clientOptions)
+    if err != nil {
+        return fmt.Errorf("failed to connect to MongoDB: %v", err)
+    }
+    defer client.Disconnect(context.Background())
 
-	// Ping the MongoDB server to verify connection
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := client.Ping(ctx, nil); err != nil {
-		slog.Error("failed to ping MongoDB", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to ping MongoDB: %v", err)
-	}
-	slog.Info("Connected to MongoDB")
+    ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+    defer cancel()
 
-	// Initialize the replica set
-	adminDB := client.Database("admin")
-	replSetConfig := bson.D{
-		{Key: "replSetInitiate", Value: bson.D{
-			{Key: "_id", Value: "rs0"},
-			{Key: "members", Value: bson.A{
-				bson.D{
-					{Key: "_id", Value: 0},
-					{Key: "host", Value: "mongodb:27017"},
-				},
-			}},
-		}},
-	}
+    if err := client.Ping(ctx, nil); err != nil {
+        return fmt.Errorf("failed to ping MongoDB: %v", err)
+    }
 
-	result, err := adminDB.RunCommand(ctx, replSetConfig).DecodeBytes()
-	if err != nil {
-		if err.Error() == "command replSetInitiate failed: already initialized" {
-			slog.Info("Replica set already initialized (safe to ignore).")
-		} else {
-			slog.Error("failed to initialize replica set", slog.String("error", err.Error()))
-			return fmt.Errorf("failed to initialize replica set: %v", err)
-		}
-	} else {
-		slog.Info("Replica set initialized successfully", "result", result.String())
-	}
-
-	// Optional: Quick check for PRIMARY state (single check or short loop; safe to skip for single-member sets)
-	// For single-member sets, this should pass immediately after initiate.
-	statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer statusCancel()
-	var statusDoc bson.M
-	if err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc); err != nil {
-		slog.Error("failed to get replica set status", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to get replica set status: %v", err)
-	}
-	slog.Info("Replica set status", "status", fmt.Sprintf("%+v", statusDoc))
-
-	// Check myState with flexible type handling (could be int32, int64, or float64 in BSON)
-	myStateVal, ok := statusDoc["myState"]
-	if !ok {
-		return fmt.Errorf("myState not found in replica set status")
-	}
-	myStateNum, ok := myStateVal.(int32)
-	if !ok {
-		if myStateNum64, ok64 := myStateVal.(int64); ok64 {
-			myStateNum = int32(myStateNum64)
-		} else if myStateFloat, okFloat := myStateVal.(float64); okFloat {
-			myStateNum = int32(myStateFloat)
-		} else {
-			return fmt.Errorf("myState has unexpected type: %T (value: %v)", myStateVal, myStateVal)
-		}
-	}
-	if myStateNum != 1 {
-		// Optional short loop if not PRIMARY (rare for single-member)
-		for i := 0; i < 10; i++ {  // Reduced to 20 seconds max
-			statusCtx, statusCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer statusCancel()
-			if err := adminDB.RunCommand(statusCtx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&statusDoc); err != nil {
-				slog.Error("failed to get replica set status in loop", slog.String("error", err.Error()))
-				return fmt.Errorf("failed to get replica set status in loop: %v", err)
-			}
-			myStateVal, _ = statusDoc["myState"]
-			if myStateNum64, ok64 := myStateVal.(int64); ok64 && myStateNum64 == 1 {
-				slog.Info("Replica set is now in PRIMARY state")
-				break
-			} else if myStateFloat, okFloat := myStateVal.(float64); okFloat && myStateFloat == 1 {
-				slog.Info("Replica set is now in PRIMARY state")
-				break
-			}
-			slog.Info("Waiting for replica set to become PRIMARY", "attempt", i+1)
-			time.Sleep(2 * time.Second)
-		}
-		if myStateNum != 1 {
-			return fmt.Errorf("replica set did not become PRIMARY after waiting")
-		}
-	} else {
-		slog.Info("Replica set is already in PRIMARY state")
-	}
-
-	// Reconnect with replica set URI (MongoDB driver will handle primary discovery)
-	clientOptions = options.Client().
-		ApplyURI("mongodb://root:root@mongodb:27017/repairdb?replicaSet=rs0&authSource=admin").
-		SetConnectTimeout(10 * time.Second)
-
-	client, err = mongo.Connect(context.Background(), clientOptions)
-	if err != nil {
-		slog.Error("failed to reconnect to MongoDB with replica set", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to reconnect to MongoDB with replica set: %v", err)
-	}
-	defer client.Disconnect(context.Background())
-
-	// Initialize mechanics collection
-	mechanicsColl := client.Database("repairdb").Collection("mechanics")
-	mechanics := []interface{}{
-		bson.M{
-			"_id": "mechanic1",
-			"name": "Berlin Auto Repair",
-			"location": bson.M{
-				"longitude": 13.388860,
-				"latitude":  52.517037,
-			},
-		},
-		bson.M{
-			"_id": "mechanic2",
-			"name": "City Garage",
-			"location": bson.M{
-				"longitude": 13.397634,
-				"latitude":  52.529407,
-			},
-		},
-		bson.M{
-			"_id": "mechanic3",
-			"name": "Fast Fix Mechanics",
-			"location": bson.M{
-				"longitude": 13.428555,
-				"latitude":  52.523219,
-			},
-		},
-	}
-
-	// Drop and insert mechanics (idempotent)
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := mechanicsColl.Drop(ctx); err != nil {
-		slog.Warn("Failed to drop mechanics collection (may not exist)", "error", err)
-	}
-	_, err = mechanicsColl.InsertMany(ctx, mechanics)
-	if err != nil {
-		slog.Error("failed to insert mechanics", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to insert mechanics: %v", err)
-	}
-	slog.Info("Inserted mechanics data successfully")
-
-	// Create index on mechanic_outbox
-	outboxColl := client.Database("repairdb").Collection("mechanic_outbox")
-	indexModel := mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "kafka_topic", Value: 1},
-			{Key: "kafka_partition", Value: 1},
-			{Key: "kafka_offset", Value: 1},
-		},
-		Options: options.Index().SetUnique(true),
-	}
-	_, err = outboxColl.Indexes().CreateOne(ctx, indexModel)
-	if err != nil {
-		slog.Error("failed to create index on mechanic_outbox", slog.String("error", err.Error()))
-		return fmt.Errorf("failed to create index on mechanic_outbox: %v", err)
-	}
-	slog.Info("Created index on mechanic_outbox successfully")
-
-	return nil
+    slog.Info("Connected to MongoDB successfully")
+    return nil
 }
 
 func initTracer() (func(), error) {
