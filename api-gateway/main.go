@@ -81,7 +81,7 @@ func main() {
 func initMongoDB() error {
 	// Set up MongoDB client options with directConnection=true for uninitialized replica set
 	clientOptions := options.Client().
-		ApplyURI("mongodb://mongodb:27017/?directConnection=true").
+		ApplyURI("mongodb://root:root@mongodb:27017/?directConnection=true&authSource=admin").
 		SetConnectTimeout(10 * time.Second)
 
 	// Connect to MongoDB
@@ -182,8 +182,9 @@ func initMongoDB() error {
 
 	// Reconnect with replica set URI (MongoDB driver will handle primary discovery)
 	clientOptions = options.Client().
-		ApplyURI("mongodb://mongodb:27017/repairdb?replicaSet=rs0").
+		ApplyURI("mongodb://root:root@mongodb:27017/repairdb?replicaSet=rs0&authSource=admin").
 		SetConnectTimeout(10 * time.Second)
+
 	client, err = mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
 		slog.Error("failed to reconnect to MongoDB with replica set", slog.String("error", err.Error()))
