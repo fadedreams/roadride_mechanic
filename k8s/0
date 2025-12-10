@@ -1,0 +1,53 @@
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm install mongodb bitnami/mongodb -f mongodb-values.yaml
+
+# Get the root password you set (password in your values.yaml)
+MONGODB_ROOT_PASSWORD=$(kubectl get secret mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d)
+
+# Connect interactively
+kubectl exec -it mongodb-0 -- mongosh "mongodb://root:${MONGODB_ROOT_PASSWORD}@localhost:27017/admin"
+
+mongodb-values.yaml
+architecture: replicaset  # Top-level for replicaset
+auth:
+  enabled: true
+  rootPassword: password  # Root user: root / password
+replica:
+  replicaCount: 1  # Single member (primary only)
+  replicaSetName: rs0
+  arbiter:
+    enabled: false  # Disable arbiter (unneeded for 1-member; avoids resources warning)
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: standard
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+# Port-forward
+kubectl port-forward svc/mongodb 27017:27017 &
+# Connect from your laptop
+mongosh "mongodb://root:password@localhost:27017/admin"
+
+kubectl exec -it mongodb-0 -- mongosh admin
+# Still inside mongosh, just run these two lines:
+use admin
+db.auth("root", "password")
+rs.status().ok
+
+kubectl apply -f api-gateway-deployment.yaml
+kubectl apply -f api-gateway-service.yaml
+
+kubectl logs -f deployment/api-gateway
+m@server-j4k4ds:~/roadride_mechanic/k8s$ kubectl apply -f api-gateway-deployment.yaml
+m@server-j4k4ds:~/roadride_mechanic/k8s$ kubectl apply -f api-gateway-service.yaml
+m@server-j4k4ds:~/roadride_mechanic/k8s$ kubectl wait --for=condition=ready pod -l app=api-gateway
+pod/api-gateway-7fd69b7dc6-96gwr condition met
+m@server-j4k4ds:~/roadride_mechanic/k8s$ minikube service api-gateway --url
+http://192.168.49.2:30085
