@@ -51,3 +51,26 @@ m@server-j4k4ds:~/roadride_mechanic/k8s$ kubectl wait --for=condition=ready pod 
 pod/api-gateway-7fd69b7dc6-96gwr condition met
 m@server-j4k4ds:~/roadride_mechanic/k8s$ minikube service api-gateway --url
 http://192.168.49.2:30085
+
+kubectl apply -f jaeger.yaml
+kubectl apply -f consul.yaml
+kubectl rollout restart deployment api-gateway
+
+# 1. Get URLs
+echo "Jaeger UI  → http://$(minikube ip):30686"
+echo "API Gateway → http://$(minikube ip):30085"
+
+# 2. Make a request
+curl -X POST http://$(minikube ip):30085/repairs/estimate \
+  -H "Content-Type: application/json" \
+  -d '{"repairType":"flat_tire","userID":"test1","location":{"longitude":13.4,"latitude":52.5}}'
+-----
+see if consul is correct?
+kubectl exec -it $(kubectl get pod -l app=consul -o name) -- curl -s http://localhost:8500/v1/catalog/services
+# Show detailed info about api-gateway
+kubectl exec -it $(kubectl get pod -l app=consul -o name) -- curl -s http://localhost:8500/v1/catalog/service/api-gateway | jq
+or
+# Quick full proof
+kubectl port-forward svc/consul 8500:8500 &
+open http://127.0.0.1:8500
+----
