@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: api-gateway:latest
+        imagePullPolicy: Never   # important for minikube
+        ports:
+        - containerPort: 8085
+        env:
+        - name: CONSUL_ADDRESS
+          value: "consul:8500"
+        - name: JAEGER_ENDPOINT
+          value: "http://jaeger:4318/v1/traces"
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/api-gateway
+      volumes:
+      - name: logs
+        emptyDir: {}
