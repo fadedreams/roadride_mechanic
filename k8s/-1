@@ -1,12 +1,14 @@
 minikube start
+minikube start --memory=6000
+
 eval $(minikube docker-env)
+
+kubectl apply -f k8s/consul.yaml
+kubectl apply -f k8s/jaeger.yaml
 
 docker build -t api-gateway:latest ./api-gateway
 docker build -t repair-service:latest ./repair-service
 docker build -t mechanic-service:latest ./mechanic-service
-
-kubectl apply -f k8s/consul.yaml
-kubectl apply -f k8s/jaeger.yaml
 
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
