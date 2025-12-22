@@ -6,7 +6,6 @@ eval $(minikube docker-env)
 kubectl apply -f k8s/consul.yaml
 kubectl apply -f k8s/jaeger.yaml
 
-
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 helm install mongodb bitnami/mongodb -f k8s/mongodb-values.yaml
@@ -20,6 +19,11 @@ kubectl apply -f k8s/api-gateway-service.yaml
 kubectl rollout restart deployment api-gateway
 kubectl logs -f -l app=api-gateway
 
+
+kubectl apply -f k8s/repair-service-deployment.yaml
+kubectl apply -f k8s/repair-service-service.yaml
+kubectl rollout restart deployment api-gateway
+kubectl logs -f -l app=repair-service
 
 
 helm repo add hashicorp https://helm.releases.hashicorp.com
