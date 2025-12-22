@@ -36,7 +36,6 @@ func initTracer(logger *slog.Logger) (func(), error) {
 		jaegerEndpoint = "http://jaeger:4318/v1/traces"
 	}
 	logger.Info("Initializing tracer", "jaeger_endpoint", jaegerEndpoint, "app", "mechanic-service")
-
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(),
 		otlptracehttp.WithEndpoint("jaeger:4318"),
@@ -47,7 +46,6 @@ func initTracer(logger *slog.Logger) (func(), error) {
 		logger.Error("Failed to create OTLP exporter", "error", err, "app", "mechanic-service")
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
-
 	// Test Jaeger connectivity
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://jaeger:16686/")
@@ -57,38 +55,61 @@ func initTracer(logger *slog.Logger) (func(), error) {
 		logger.Info("Jaeger UI health check", "status_code", resp.StatusCode, "app", "mechanic-service")
 		resp.Body.Close()
 	}
-
 	resources := resource.NewWithAttributes(
 		semconv.SchemaURL,
 		semconv.ServiceNameKey.String("mechanic-service"),
 	)
-
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter, sdktrace.WithExportTimeout(5*time.Second))),
 		sdktrace.WithResource(resources),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-
 	// Force a test span
 	ctx := context.Background()
 	tr := otel.Tracer("mechanic-service")
 	_, span := tr.Start(ctx, "TestSpan")
 	span.SetAttributes(attribute.String("test", "true"))
 	span.End()
-
 	if err := tp.ForceFlush(ctx); err != nil {
 		logger.Error("Failed to flush test span", "error", err, "app", "mechanic-service")
 	} else {
 		logger.Info("Test span flushed successfully", "app", "mechanic-service")
 	}
-
 	return func() {
 		logger.Info("Shutting down tracer provider", "app", "mechanic-service")
 		if err := tp.Shutdown(context.Background()); err != nil {
 			logger.Error("Error shutting down tracer provider", "error", err, "app", "mechanic-service")
 		}
 	}, nil
+}
+
+// New function: initMongoDB (only change in MongoDB part)
+func initMongoDB() (*mongo.Client, error) {
+	uri := "mongodb://root:password@mongodb-headless.default.svc.cluster.local:27017/repairdb?replicaSet=rs0&authSource=admin"
+
+	clientOptions := options.Client().
+		ApplyURI(uri).
+		SetConnectTimeout(10 * time.Second).
+		SetServerSelectionTimeout(10 * time.Second).
+		SetHeartbeatInterval(10 * time.Second).
+		SetRetryWrites(true).
+		SetRetryReads(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MongoDB client: %w", err)
+	}
+
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, fmt.Errorf("failed to ping MongoDB replica set: %w", err)
+	}
+
+	slog.Info("Successfully connected to MongoDB replica set (rs0)")
+	return client, nil
 }
 
 func main() {
@@ -124,7 +145,6 @@ func main() {
 		logger.Error("Failed to create Consul client", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
-
 	serviceName := os.Getenv("SERVICE_NAME")
 	if serviceName == "" {
 		serviceName = "mechanic-service"
@@ -151,14 +171,10 @@ func main() {
 	}
 	logger.Info("Registered with Consul", "service_id", serviceID, "app", "mechanic-service")
 
-	// Initialize MongoDB
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://mongodb:27017/repairdb?replicaSet=rs0"
-	}
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
+	// === ONLY CHANGE: Use the new initMongoDB function ===
+	client, err := initMongoDB()
 	if err != nil {
-		logger.Error("Failed to connect to MongoDB", "error", err, "app", "mechanic-service")
+		logger.Error("Failed to initialize MongoDB", "error", err, "app", "mechanic-service")
 		os.Exit(1)
 	}
 	defer func() {
@@ -166,7 +182,6 @@ func main() {
 			logger.Error("Failed to disconnect from MongoDB", "error", err, "app", "mechanic-service")
 		}
 	}()
-	logger.Info("Connected to MongoDB", "uri", mongoURI, "app", "mechanic-service")
 
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
@@ -220,5 +235,6 @@ func main() {
 	if err := consulClient.Agent().ServiceDeregister(serviceID); err != nil {
 		logger.Error("Failed to deregister from Consul", "error", err, "app", "mechanic-service")
 	}
+
 	logger.Info("Service shutdown complete", "app", "mechanic-service")
 }
