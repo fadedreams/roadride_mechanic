@@ -1,61 +1,36 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yaml --out k8s/
-    kompose.version: 1.37.0 (fb0539e64)
-  labels:
-    io.kompose.service: repair-service
   name: repair-service
-  namespace: roadride
+  labels:
+    app: repair-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: repair-service
-  strategy:
-    type: Recreate
+      app: repair-service
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yaml --out k8s/
-        kompose.version: 1.37.0 (fb0539e64)
       labels:
-        io.kompose.service: repair-service
+        app: repair-service
     spec:
       containers:
-        - envFrom:
-            - configMapRef:
-                name: app-config
-          image: repair-service
-          name: repair-service
-          ports:
-            - containerPort: 8087
-              protocol: TCP
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8087
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8087
-            initialDelaySeconds: 10
-            periodSeconds: 5
-          volumeMounts:
-            - mountPath: /var/log/repair-service
-              name: repair-service-logs
-      restartPolicy: Always
+      - name: repair-service
+        image: repair-service:latest
+        imagePullPolicy: Never  # important for minikube local images
+        ports:
+        - containerPort: 8087   # HTTP port
+        - containerPort: 50051 # gRPC port (optional, but good to expose)
+        env:
+        - name: CONSUL_ADDRESS
+          value: "consul:8500"
+        - name: JAEGER_ENDPOINT
+          value: "http://jaeger:4318/v1/traces"
+        - name: SERVICE_PORT
+          value: "8087"
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/repair-service
       volumes:
-        - name: repair-service-logs
-          persistentVolumeClaim:
-            claimName: repair-service-logs
+      - name: logs
+        emptyDir: {}
