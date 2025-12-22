@@ -14,7 +14,7 @@ import (
 	"repair-service/grpcsvc"
 	"repair-service/logging"
 	"repair-service/proto"
-	"repair-service/service"
+	// "repair-service/service"
 
 	"log/slog"
 
