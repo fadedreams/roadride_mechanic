@@ -3,7 +3,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	// "encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -20,8 +20,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/consul/api"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	// "go.mongodb.org/mongo-driver/bson"
+	// "go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
@@ -196,7 +196,7 @@ func main() {
 
 	// Initialize repository and service
 	repo := domain.NewMongoRepository(client)
-	svc := service.NewService(repo, logger)
+	// svc := service.NewService(repo, logger)
 
 	// Initialize router
 	r := mux.NewRouter()
@@ -256,4 +256,5 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 
