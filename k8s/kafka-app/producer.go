@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	// "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka/v2"
 	"github.com/hamba/avro/v2"
 	"github.com/riferrei/srclient"
 )
