@@ -1,14 +1,4 @@
-minikube start --memory=6000
-eval $(minikube docker-env)
 
-kubectl apply -f k8s/consul.yaml
-kubectl apply -f k8s/jaeger.yaml
-
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-helm install mongodb bitnami/mongodb -f k8s/mongodb-values.yaml
-
--- for elk use https://artifacthub.io/packages/helm/elk8-dev/elk8-dev
 
 --https://strimzi.io/quickstarts/
 kubectl -n kafka get kafka my-cluster -o yaml > my-cluster-backup.yaml
@@ -41,23 +31,3 @@ kubectl apply -f kafka-ui.yaml -n kafka
 kubectl port-forward svc/kafka-ui 8080:8080 -n kafka &
 
 --end of strimzi
-
-docker build -t api-gateway:latest ./api-gateway
-docker build -t repair-service:latest ./repair-service
-docker build -t mechanic-service:latest ./mechanic-service
-
-kubectl apply -f k8s/api-gateway-deployment.yaml
-kubectl apply -f k8s/api-gateway-service.yaml
-kubectl rollout restart deployment api-gateway
-kubectl logs -f -l app=api-gateway
-
-kubectl apply -f k8s/repair-service-deployment.yaml
-kubectl apply -f k8s/repair-service-service.yaml
-kubectl rollout restart deployment api-gateway
-kubectl logs -f -l app=repair-service
-
-kubectl apply -f k8s/mechanic-service-deployment.yaml
-kubectl apply -f k8s/mechanic-service-service.yaml
-kubectl rollout restart deployment mechanic-service
-kubectl logs -f -l app=mechanic-service
-

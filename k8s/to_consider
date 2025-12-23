@@ -1,1 +1,0 @@
-Consul: Installed via Helm, but ensure consul-server service name matches app-configmap.yaml.
