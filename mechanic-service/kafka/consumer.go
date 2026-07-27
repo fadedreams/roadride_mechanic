@@ -90,13 +90,37 @@ func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, log
 	}, nil
 }
 
+// rebalanceCallback ensures that when this consumer is about to lose a
+// partition, whatever has already been processed gets a final, blocking
+// (synchronous) commit before the partition changes hands. This closes the
+// window where a redelivery would happen simply because the last per-message
+// commit hadn't been flushed yet.
+func (c *Consumer) rebalanceCallback(kc *kafka.Consumer, event kafka.Event) error {
+	switch e := event.(type) {
+	case kafka.AssignedPartitions:
+		c.logger.Info("Partitions assigned", "partitions", e.Partitions, "app", "mechanic-service")
+		return kc.Assign(e.Partitions)
+
+	case kafka.RevokedPartitions:
+		c.logger.Info("Partitions revoked, forcing sync commit before giving them up",
+			"partitions", e.Partitions, "app", "mechanic-service")
+		if _, err := kc.Commit(); err != nil {
+			// Not fatal: worst case is a harmless redelivery, which the
+			// outbox idempotency check below already protects against.
+			c.logger.Error("Failed to commit offsets on revoke", "error", err, "app", "mechanic-service")
+		}
+		return kc.Unassign()
+	}
+	return nil
+}
+
 // Start begins consuming messages from the Kafka topic
 func (c *Consumer) Start(ctx context.Context) error {
 	_, span := c.tracer.Start(ctx, "KafkaConsumerStart")
 	defer span.End()
 
-	// Subscribe to the topic
-	err := c.kafkaConsumer.SubscribeTopics([]string{c.topic}, nil)
+	// Subscribe to the topic, registering the rebalance callback
+	err := c.kafkaConsumer.SubscribeTopics([]string{c.topic}, c.rebalanceCallback)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to subscribe to topic")
@@ -117,118 +141,24 @@ func (c *Consumer) Start(ctx context.Context) error {
 				continue
 			}
 
-			_, span := c.tracer.Start(ctx, "ProcessKafkaMessage")
-			// Deserialize Avro message
-			if len(msg.Value) < 5 {
-				span.RecordError(fmt.Errorf("invalid message length"))
-				span.SetStatus(codes.Error, "Invalid message length")
-				c.logger.Error("Invalid message length", "length", len(msg.Value), "app", "mechanic-service")
-				span.End()
+			if err := c.handleMessage(ctx, msg); err != nil {
+				c.logger.Error("Failed to handle message",
+					"topic", *msg.TopicPartition.Topic,
+					"partition", msg.TopicPartition.Partition,
+					"offset", msg.TopicPartition.Offset,
+					"error", err,
+					"app", "mechanic-service")
 				continue
 			}
 
-			// Extract schema ID (skip magic byte)
-			schemaID := int(binary.BigEndian.Uint32(msg.Value[1:5]))
-			span.SetAttributes(
-				attribute.String("topic", *msg.TopicPartition.Topic),
-				attribute.Int("partition", int(msg.TopicPartition.Partition)),
-				attribute.Int64("offset", int64(msg.TopicPartition.Offset)),
-				attribute.Int("schemaID", schemaID),
-			)
-
-			// Fetch schema if not already loaded
-			if c.schema == nil {
-				schemaObj, err := c.srClient.GetSchema(schemaID)
-				if err != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, "Failed to fetch schema")
-					c.logger.Error("Failed to fetch schema", "schemaID", schemaID, "error", err, "app", "mechanic-service")
-					span.End()
-					continue
-				}
-				c.schema, err = avro.Parse(schemaObj.Schema())
-				if err != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, "Failed to parse schema")
-					c.logger.Error("Failed to parse schema", "schemaID", schemaID, "error", err, "app", "mechanic-service")
-					span.End()
-					continue
-				}
-			}
-
-			// Start a transaction to check and save outbox event
-			session, err := c.repo.GetMongoClient(ctx).StartSession()
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to start MongoDB session")
-				c.logger.Error("Failed to start MongoDB session", "error", err, "app", "mechanic-service")
-				span.End()
-				continue
-			}
-			defer session.EndSession(ctx)
-
-			err = session.StartTransaction()
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to start transaction")
-				c.logger.Error("Failed to start transaction", "error", err, "app", "mechanic-service")
-				span.End()
-				continue
-			}
-
-			err = mongo.WithSession(ctx, session, func(sc mongo.SessionContext) error {
-				// Check if outbox event already exists
-				exists, err := c.repo.CheckOutboxEventExists(ctx, sc, *msg.TopicPartition.Topic, msg.TopicPartition.Partition, int64(msg.TopicPartition.Offset))
-				if err != nil {
-					c.logger.Error("Failed to check outbox event existence", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "error", err, "app", "mechanic-service")
-					return fmt.Errorf("failed to check outbox event existence: %w", err)
-				}
-				if exists {
-					c.logger.Info("Outbox event already exists, skipping", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "app", "mechanic-service")
-					return nil
-				}
-
-				// Save the outbox event
-				outboxEvent := &domain.OutboxEvent{
-					ID:             primitive.NewObjectID().Hex(),
-					EventType:      "RepairEvent",
-					Payload:        msg.Value,
-					CreatedAt:      time.Now(),
-					Processed:      false,
-					KafkaTopic:     *msg.TopicPartition.Topic,
-					KafkaPartition: msg.TopicPartition.Partition,
-					KafkaOffset:    int64(msg.TopicPartition.Offset),
-				}
-				if err := c.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
-					return fmt.Errorf("failed to save outbox event: %w", err)
-				}
-				c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "topic", outboxEvent.KafkaTopic, "partition", outboxEvent.KafkaPartition, "offset", outboxEvent.KafkaOffset, "app", "mechanic-service")
-				return nil
-			})
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Transaction failed")
-				c.logger.Error("Transaction failed", "error", err, "app", "mechanic-service")
-				session.AbortTransaction(ctx)
-				span.End()
-				continue
-			}
-
-			if err := session.CommitTransaction(ctx); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to commit transaction")
-				c.logger.Error("Failed to commit transaction", "error", err, "app", "mechanic-service")
-				span.End()
-				continue
-			}
-
-			// Commit Kafka offset
-			_, err = c.kafkaConsumer.CommitMessage(msg)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to commit Kafka offset")
-				c.logger.Error("Failed to commit Kafka offset", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "error", err, "app", "mechanic-service")
-				span.End()
+			// Commit Kafka offset only after the outbox write is durably committed
+			if _, err := c.kafkaConsumer.CommitMessage(msg); err != nil {
+				c.logger.Error("Failed to commit Kafka offset",
+					"topic", *msg.TopicPartition.Topic,
+					"partition", msg.TopicPartition.Partition,
+					"offset", msg.TopicPartition.Offset,
+					"error", err,
+					"app", "mechanic-service")
 				continue
 			}
 
@@ -237,9 +167,120 @@ func (c *Consumer) Start(ctx context.Context) error {
 				"partition", msg.TopicPartition.Partition,
 				"offset", msg.TopicPartition.Offset,
 				"app", "mechanic-service")
-			span.End()
 		}
 	}
+}
+
+// handleMessage deserializes and processes a single Kafka message, writing
+// it to the outbox inside a MongoDB transaction. The session is scoped to
+// this function call, so EndSession fires on every message rather than only
+// when Start() itself returns.
+func (c *Consumer) handleMessage(ctx context.Context, msg *kafka.Message) error {
+	ctx, span := c.tracer.Start(ctx, "ProcessKafkaMessage")
+	defer span.End()
+
+	// Deserialize Avro message
+	if len(msg.Value) < 5 {
+		err := fmt.Errorf("invalid message length")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Invalid message length")
+		c.logger.Error("Invalid message length", "length", len(msg.Value), "app", "mechanic-service")
+		return err
+	}
+
+	// Extract schema ID (skip magic byte)
+	schemaID := int(binary.BigEndian.Uint32(msg.Value[1:5]))
+	span.SetAttributes(
+		attribute.String("topic", *msg.TopicPartition.Topic),
+		attribute.Int("partition", int(msg.TopicPartition.Partition)),
+		attribute.Int64("offset", int64(msg.TopicPartition.Offset)),
+		attribute.Int("schemaID", schemaID),
+	)
+
+	// Fetch schema if not already loaded
+	if c.schema == nil {
+		schemaObj, err := c.srClient.GetSchema(schemaID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to fetch schema")
+			c.logger.Error("Failed to fetch schema", "schemaID", schemaID, "error", err, "app", "mechanic-service")
+			return fmt.Errorf("failed to fetch schema: %w", err)
+		}
+		c.schema, err = avro.Parse(schemaObj.Schema())
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to parse schema")
+			c.logger.Error("Failed to parse schema", "schemaID", schemaID, "error", err, "app", "mechanic-service")
+			return fmt.Errorf("failed to parse schema: %w", err)
+		}
+	}
+
+	// Start a transaction to check and save the outbox event.
+	// Session + EndSession are scoped to this call — fixes the leak where
+	// the original code deferred EndSession inside the outer for-loop,
+	// which meant it never actually ran until Start() itself returned.
+	session, err := c.repo.GetMongoClient(ctx).StartSession()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to start MongoDB session")
+		c.logger.Error("Failed to start MongoDB session", "error", err, "app", "mechanic-service")
+		return fmt.Errorf("failed to start MongoDB session: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	if err := session.StartTransaction(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to start transaction")
+		c.logger.Error("Failed to start transaction", "error", err, "app", "mechanic-service")
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+
+	err = mongo.WithSession(ctx, session, func(sc mongo.SessionContext) error {
+		// Idempotency check: (topic, partition, offset) is the dedup key.
+		// This is what actually prevents duplicate processing, independent
+		// of Kafka offset commit timing.
+		exists, err := c.repo.CheckOutboxEventExists(ctx, sc, *msg.TopicPartition.Topic, msg.TopicPartition.Partition, int64(msg.TopicPartition.Offset))
+		if err != nil {
+			c.logger.Error("Failed to check outbox event existence", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "error", err, "app", "mechanic-service")
+			return fmt.Errorf("failed to check outbox event existence: %w", err)
+		}
+		if exists {
+			c.logger.Info("Outbox event already exists, skipping", "topic", *msg.TopicPartition.Topic, "partition", msg.TopicPartition.Partition, "offset", msg.TopicPartition.Offset, "app", "mechanic-service")
+			return nil
+		}
+
+		outboxEvent := &domain.OutboxEvent{
+			ID:             primitive.NewObjectID().Hex(),
+			EventType:      "RepairEvent",
+			Payload:        msg.Value,
+			CreatedAt:      time.Now(),
+			Processed:      false,
+			KafkaTopic:     *msg.TopicPartition.Topic,
+			KafkaPartition: msg.TopicPartition.Partition,
+			KafkaOffset:    int64(msg.TopicPartition.Offset),
+		}
+		if err := c.repo.SaveOutboxEvent(ctx, sc, outboxEvent); err != nil {
+			return fmt.Errorf("failed to save outbox event: %w", err)
+		}
+		c.logger.Info("Saved outbox event in transaction", "eventID", outboxEvent.ID, "topic", outboxEvent.KafkaTopic, "partition", outboxEvent.KafkaPartition, "offset", outboxEvent.KafkaOffset, "app", "mechanic-service")
+		return nil
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Transaction failed")
+		c.logger.Error("Transaction failed", "error", err, "app", "mechanic-service")
+		session.AbortTransaction(ctx)
+		return err
+	}
+
+	if err := session.CommitTransaction(ctx); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to commit transaction")
+		c.logger.Error("Failed to commit transaction", "error", err, "app", "mechanic-service")
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 // Close shuts down the Kafka consumer
@@ -247,4 +288,3 @@ func (c *Consumer) Close() {
 	c.logger.Info("Closing Kafka consumer", "app", "mechanic-service")
 	c.kafkaConsumer.Close()
 }
-
