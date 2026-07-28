@@ -62,14 +62,18 @@ const slowProcessingThreshold = 10 * time.Second
 
 func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, logger *slog.Logger, repo domain.MechanicRepository) (*Consumer, error) {
 	// Static group membership requires a stable per-instance identity.
-	// This MUST be stable across restarts of the "same" logical consumer
-	// (e.g. a StatefulSet pod name like "mechanic-service-0"), and unique
-	// per running instance. A randomly-generated Deployment pod name
-	// changes on every restart and defeats the purpose — use a
-	// StatefulSet, or inject a stable ordinal/identity some other way.
-	instanceID := os.Getenv("POD_NAME")
+	// This MUST be stable across restarts of the "same" logical instance,
+	// and unique per running instance. In docker-compose this is a fixed
+	// value tied to container_name; in the current single-replica k8s
+	// Deployment it's also hardcoded. If you scale the Deployment beyond
+	// one replica, switch to a StatefulSet and derive this from the
+	// stable ordinal pod name instead (e.g. via the Kubernetes downward
+	// API / POD_NAME), since a hardcoded value would collide across
+	// replicas and a Deployment's generated pod names aren't stable
+	// across restarts.
+	instanceID := os.Getenv("INSTANCE_ID")
 	if instanceID == "" {
-		return nil, fmt.Errorf("POD_NAME env var must be set (stable per-instance identity required for group.instance.id)")
+		return nil, fmt.Errorf("INSTANCE_ID env var must be set (stable per-instance identity required for group.instance.id)")
 	}
 
 	// Initialize Kafka consumer
