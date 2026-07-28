@@ -1,6 +1,5 @@
 # Changelog
 
-## [Unreleased]
 
 ### Fixed
 - **kafka**: prevent consumer group rebalance storms on restart ([27d46f4](https://github.com/fadedreams/roadride_mechanic/commit/27d46f4))
