@@ -53,11 +53,32 @@ type Consumer struct {
 	repo          domain.MechanicRepository
 }
 
+// slowProcessingThreshold is the point at which a single message's
+// processing time gets logged as a warning. This is a canary for
+// max.poll.interval.ms exhaustion, not a hard limit itself — tune it
+// well below your configured max.poll.interval.ms so you get warned
+// before a rebalance actually happens.
+const slowProcessingThreshold = 10 * time.Second
+
 func NewConsumer(bootstrapServers, schemaRegistryURL, topic, groupID string, logger *slog.Logger, repo domain.MechanicRepository) (*Consumer, error) {
+	// Static group membership requires a stable per-instance identity.
+	// This MUST be stable across restarts of the "same" logical consumer
+	// (e.g. a StatefulSet pod name like "mechanic-service-0"), and unique
+	// per running instance. A randomly-generated Deployment pod name
+	// changes on every restart and defeats the purpose — use a
+	// StatefulSet, or inject a stable ordinal/identity some other way.
+	instanceID := os.Getenv("POD_NAME")
+	if instanceID == "" {
+		return nil, fmt.Errorf("POD_NAME env var must be set (stable per-instance identity required for group.instance.id)")
+	}
+
 	// Initialize Kafka consumer
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  bootstrapServers,
 		"group.id":           groupID,
+		"group.instance.id":  instanceID, // static membership: restarts are treated as reconnects, not leave+join, avoiding rebalance storms on rolling deploys/autoscaling
+		"session.timeout.ms": 45000,      // grace window the broker waits before evicting a disconnected static member; must comfortably cover normal restart time
+		"max.poll.interval.ms": 300000,   // ceiling on time between ReadMessage calls before the client voluntarily leaves the group; tune against measured p99 processing time (see processing-time logging in handleMessage)
 		"auto.offset.reset":  "earliest",
 		"enable.auto.commit": false, // Disable auto-commit to control commits
 	}
@@ -176,6 +197,27 @@ func (c *Consumer) Start(ctx context.Context) error {
 // this function call, so EndSession fires on every message rather than only
 // when Start() itself returns.
 func (c *Consumer) handleMessage(ctx context.Context, msg *kafka.Message) error {
+	// Track wall-clock time spent processing this single message. Since
+	// ReadMessage(-1) in the Start() loop is the poll-equivalent call,
+	// this is effectively the per-iteration contribution to the
+	// poll-to-poll gap that max.poll.interval.ms measures. Logging it
+	// gives real p95/p99 numbers to tune max.poll.interval.ms against,
+	// instead of guessing, and the warning acts as an early-warning
+	// canary before a rebalance actually happens.
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		c.logger.Info("Message processing time",
+			"elapsed_ms", elapsed.Milliseconds(),
+			"app", "mechanic-service")
+		if elapsed > slowProcessingThreshold {
+			c.logger.Warn("Slow message processing detected — approaching max.poll.interval.ms risks a rebalance",
+				"elapsed_ms", elapsed.Milliseconds(),
+				"threshold_ms", slowProcessingThreshold.Milliseconds(),
+				"app", "mechanic-service")
+		}
+	}()
+
 	ctx, span := c.tracer.Start(ctx, "ProcessKafkaMessage")
 	defer span.End()
 

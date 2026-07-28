@@ -27,6 +27,8 @@ spec:
           value: "http://jaeger:4318/v1/traces"
         - name: SERVICE_PORT
           value: "8086"
+        - name: INSTANCE_ID
+          value: "mechanic-service-1"
         volumeMounts:
         - name: logs
           mountPath: /var/log/mechanic-service

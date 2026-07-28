@@ -58,6 +58,7 @@ services:
       - SERVICE_PORT=8086
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9094
       - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - INSTANCE_ID=mechanic-service-1 
 
   repair-service:
     build:
